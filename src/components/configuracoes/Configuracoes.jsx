@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
+import { TEMAS, temaSalvo, aplicarTema, coresPersonalizadas, aplicarCoresPersonalizadas } from '../../utils/tema.js'
 
 export default function Configuracoes() {
   const { userProfile, condominio, atualizarCondominio } = useAuth()
@@ -12,6 +13,8 @@ export default function Configuracoes() {
   const [sucesso, setSucesso] = useState('')
   const [carregando, setCarregando] = useState(false)
   const [processando, setProcessando] = useState(false)
+  const [temaAtual, setTemaAtual] = useState(temaSalvo())
+  const [cores, setCores] = useState(coresPersonalizadas())
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -38,6 +41,18 @@ export default function Configuracoes() {
   function removerLogo() {
     setLogo('')
     if (inputRef.current) inputRef.current.value = ''
+  }
+
+  function escolherTema(id) {
+    setTemaAtual(aplicarTema(id))
+    if (id === 'personalizado') setCores(coresPersonalizadas())
+  }
+
+  function alterarCor(campo, valor) {
+    const novas = { ...cores, [campo]: valor }
+    setCores(novas)
+    aplicarCoresPersonalizadas(novas)
+    setTemaAtual('personalizado')
   }
 
   async function handleSubmit(e) {
@@ -155,6 +170,81 @@ export default function Configuracoes() {
             </button>
           </form>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>Tema de cores do sistema</h3>
+        <p className="hint" style={{ marginBottom: 16, color: 'var(--ink-soft)', fontSize: 12 }}>
+          Escolha a escala de cores da interface. A opção é aplicada na hora e fica salva neste dispositivo — cada máquina pode usar um tema diferente.
+        </p>
+        <div className="temas-lista">
+          {TEMAS.map((tema) => (
+            <button
+              type="button"
+              key={tema.id}
+              className={'tema-opcao' + (temaAtual === tema.id ? ' tema-ativo' : '')}
+              onClick={() => escolherTema(tema.id)}
+              aria-pressed={temaAtual === tema.id}
+            >
+              <span className="tema-amostras">
+                {tema.amostras.map((cor, indice) => (
+                  <span key={indice} style={{ background: cor }} />
+                ))}
+              </span>
+              <strong>{tema.nome}</strong>
+              <span className="tema-descricao">{tema.descricao}</span>
+              <span className={'tema-status' + (temaAtual === tema.id ? ' em-uso' : '')}>
+                {temaAtual === tema.id ? '✓ Em uso' : 'Ativar'}
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={'tema-opcao' + (temaAtual === 'personalizado' ? ' tema-ativo' : '')}
+            onClick={() => escolherTema('personalizado')}
+            aria-pressed={temaAtual === 'personalizado'}
+          >
+            <span className="tema-amostras">
+              {[cores.principal, cores.escura, cores.suave].map((cor, indice) => (
+                <span key={indice} style={{ background: cor }} />
+              ))}
+            </span>
+            <strong>Personalizado</strong>
+            <span className="tema-descricao">Defina as cores do sistema do seu jeito.</span>
+            <span className={'tema-status' + (temaAtual === 'personalizado' ? ' em-uso' : '')}>
+              {temaAtual === 'personalizado' ? '✓ Em uso' : 'Editar cores'}
+            </span>
+          </button>
+        </div>
+
+        {temaAtual === 'personalizado' && (
+          <div className="tema-editor">
+            <div className="tema-editor-campo">
+              <label htmlFor="tema-cor-principal">Cor principal</label>
+              <div className="tema-editor-controle">
+                <input id="tema-cor-principal" type="color" value={cores.principal} onChange={(e) => alterarCor('principal', e.target.value)} />
+                <code>{cores.principal.toUpperCase()}</code>
+              </div>
+            </div>
+            <div className="tema-editor-campo">
+              <label htmlFor="tema-cor-escura">Cor escura (hover)</label>
+              <div className="tema-editor-controle">
+                <input id="tema-cor-escura" type="color" value={cores.escura} onChange={(e) => alterarCor('escura', e.target.value)} />
+                <code>{cores.escura.toUpperCase()}</code>
+              </div>
+            </div>
+            <div className="tema-editor-campo">
+              <label htmlFor="tema-cor-suave">Fundo suave</label>
+              <div className="tema-editor-controle">
+                <input id="tema-cor-suave" type="color" value={cores.suave} onChange={(e) => alterarCor('suave', e.target.value)} />
+                <code>{cores.suave.toUpperCase()}</code>
+              </div>
+            </div>
+            <p className="tema-editor-hint">
+              Botões, menu ativo, badges e destaques usam a cor principal. As alterações são aplicadas na hora e salvas neste dispositivo.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )

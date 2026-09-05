@@ -28,7 +28,7 @@ export default function Layout() {
             )}
             <div className="name">
               {condominio?.nome || 'Condomínio'}
-              <span>Portaria &amp; Mural</span>
+              <span>Controle &amp; Gestão</span>
             </div>
           </div>
 

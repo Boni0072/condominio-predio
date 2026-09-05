@@ -62,9 +62,11 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
   })
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
+  const [aberto, setAberto] = useState(false)
 
   useEffect(() => {
     if (editando) {
+      setAberto(true)
       setForm({
         nome: editando.nome || '',
         email: editando.email || '',
@@ -120,6 +122,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         window.alert('Usuário cadastrado! Ele já pode entrar com o email e senha definidos.')
       }
       onConcluir()
+      setAberto(false)
       setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', acessos: ACESSOS_POR_PERFIL.portaria })
     } catch (err) {
       setErro(err?.code === 'permission-denied'
@@ -131,9 +134,23 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
 
   return (
     <div className="card" style={{ marginBottom: 24 }}>
-      <h3 style={{ marginBottom: 12 }}>{editando ? 'Editar usuário operacional' : 'Cadastrar zelador ou porteiro'}</h3>
-      {erro && <div className="login-erro">{erro}</div>}
-      <form onSubmit={handleSubmit}>
+      <button
+        type="button"
+        className="form-toggle"
+        onClick={() => setAberto((atual) => !atual)}
+        aria-expanded={aberto}
+        aria-controls="form-usuarios"
+      >
+        <span className="form-toggle-texto">
+          <strong>{editando ? 'Editar usuário operacional' : 'Cadastrar zelador ou porteiro'}</strong>
+          <span className="form-toggle-ajuda">{aberto ? 'Clique para recolher' : 'Clique para abrir o formulário'}</span>
+        </span>
+        <span className="form-toggle-seta" aria-hidden="true">{aberto ? '▲' : '▼'}</span>
+      </button>
+      {aberto && (
+        <>
+          {erro && <div className="login-erro">{erro}</div>}
+          <form id="form-usuarios" onSubmit={handleSubmit}>
         <div className="form-grid">
           <div className="field">
             <label>Nome *</label>
@@ -179,8 +196,19 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
           {carregando ? (editando ? 'Salvando...' : 'Cadastrando...') : (editando ? 'Salvar alterações' : 'Cadastrar usuário')}
         </button>
-        {editando && <button type="button" className="btn btn-ghost btn-block" onClick={onConcluir} disabled={carregando}>Cancelar</button>}
+        {editando && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-block"
+            onClick={() => { setAberto(false); onConcluir() }}
+            disabled={carregando}
+          >
+            Cancelar
+          </button>
+        )}
       </form>
+        </>
+      )}
     </div>
   )
 }

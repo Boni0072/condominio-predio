@@ -340,7 +340,7 @@ export default function Painel() {
       </div>
 
       {['sindico', 'zelador', 'morador'].includes(userProfile?.role) && (
-        <div className="panel orcamento-painel-card" style={{ marginBottom: 24 }}>
+        <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header">
             <div>
               <h2>Orçamento {anoOrcamento}</h2>
@@ -362,7 +362,7 @@ export default function Painel() {
         </div>
       )}
 
-      <div className="panel despesas-periodo-painel" style={{ marginBottom: 24 }}>
+      <div className="panel" style={{ marginBottom: 24 }}>
         <div className="panel-header">
           <h2>Despesas do período</h2>
           <div className="panel-header-actions">

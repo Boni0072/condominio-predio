@@ -5,6 +5,10 @@ import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { AppProvider } from './context/AppContext.jsx'
 import './index.css'
+import { iniciarTema } from './utils/tema.js'
+
+// Aplica o tema de cores salvo neste dispositivo antes da primeira renderização.
+iniciarTema()
 
 // Em desenvolvimento, não registramos service worker (evita erros do PWA em dev).
 // Se um SW antigo de builds anteriores ainda estiver ativo, desregistra e limpa caches.

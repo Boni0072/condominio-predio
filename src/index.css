@@ -6,6 +6,12 @@
   --line: #d8dad3;
   --brass: #c9a227;
   --brass-dark: #a3811b;
+  --brass-soft: #f7f0d8;
+  --brass-contrast: #1c2b33;
+  --brass-tint-12: rgba(201, 162, 39, 0.12);
+  --brass-tint-14: rgba(201, 162, 39, 0.14);
+  --brass-tint-24: rgba(201, 162, 39, 0.24);
+  --brass-tint-45: rgba(201, 162, 39, 0.45);
   --green: #3f7a5d;
   --green-soft: #e6efe9;
   --brick: #b3492e;
@@ -19,6 +25,31 @@
   --radius-s: 4px;
   --radius-m: 8px;
   --shadow-card: 0 1px 2px rgba(28, 43, 51, 0.08);
+}
+
+/* ---------- Temas de cores do sistema (Configurações > Tema de cores) ----------
+   O tema ativo é aplicado via data-theme no <html> (src/utils/tema.js). */
+
+[data-theme='oceano'] {
+  --brass: #35749c;
+  --brass-dark: #27597a;
+  --brass-soft: #dfeaf2;
+  --brass-contrast: #ffffff;
+  --brass-tint-12: rgba(53, 116, 156, 0.12);
+  --brass-tint-14: rgba(53, 116, 156, 0.14);
+  --brass-tint-24: rgba(53, 116, 156, 0.24);
+  --brass-tint-45: rgba(53, 116, 156, 0.45);
+}
+
+[data-theme='floresta'] {
+  --brass: #3f8262;
+  --brass-dark: #2f6349;
+  --brass-soft: #e0efe6;
+  --brass-contrast: #ffffff;
+  --brass-tint-12: rgba(63, 130, 98, 0.12);
+  --brass-tint-14: rgba(63, 130, 98, 0.14);
+  --brass-tint-24: rgba(63, 130, 98, 0.24);
+  --brass-tint-45: rgba(63, 130, 98, 0.45);
 }
 
 * {
@@ -119,7 +150,7 @@ a {
   justify-content: center;
   font-family: var(--font-display);
   font-weight: 700;
-  color: var(--ink);
+  color: var(--brass-contrast);
   flex-shrink: 0;
 }
 
@@ -173,7 +204,7 @@ a {
 }
 
 .nav-link.active {
-  background: rgba(201, 162, 39, 0.14);
+  background: var(--brass-tint-14);
   color: var(--paper);
   border-left-color: var(--brass);
 }
@@ -210,9 +241,9 @@ a {
   gap: 6px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid rgba(201, 162, 39, 0.45);
+  border: 1px solid var(--brass-tint-45);
   border-radius: var(--radius-s);
-  background: rgba(201, 162, 39, 0.12);
+  background: var(--brass-tint-12);
   color: var(--paper);
   font-size: 12.5px;
   font-weight: 600;
@@ -222,7 +253,7 @@ a {
 }
 
 .sidebar-footer .btn-instalar:hover {
-  background: rgba(201, 162, 39, 0.24);
+  background: var(--brass-tint-24);
 }
 
 .instalar-ajuda {
@@ -233,6 +264,132 @@ a {
   color: #cdd6d9;
   font-size: 11.5px;
   line-height: 1.45;
+}
+
+/* ---------- Seletor de tema de cores (Configurações) ---------- */
+
+.temas-lista {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1080px) {
+  .temas-lista {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.tema-opcao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper-raised);
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tema-opcao:hover {
+  border-color: var(--brass);
+}
+
+.tema-opcao.tema-ativo {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 2px var(--brass-tint-24);
+}
+
+.tema-amostras {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tema-amostras span {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--paper-raised), 0 0 0 1px var(--line);
+}
+
+.tema-opcao strong {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+}
+
+.tema-descricao {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.tema-status {
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.tema-status.em-uso {
+  color: var(--brass-dark);
+}
+
+/* Editor de cores personalizadas */
+
+.tema-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+}
+
+.tema-editor-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tema-editor-controle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tema-editor-controle input[type='color'] {
+  width: 46px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  cursor: pointer;
+}
+
+.tema-editor-controle code {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.tema-editor-hint {
+  width: 100%;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 720px) {
+  .temas-lista {
+    grid-template-columns: 1fr;
+  }
 }
 
 .main {
@@ -529,7 +686,7 @@ a {
 
 .btn-brass {
   background: var(--brass);
-  color: var(--ink);
+  color: var(--brass-contrast);
 }
 
 .btn-brass:hover {
@@ -943,7 +1100,7 @@ a {
 .chip-ativo {
   background: var(--brass);
   border-color: var(--brass);
-  color: var(--ink);
+  color: var(--brass-contrast);
   font-weight: 600;
 }
 
@@ -1012,7 +1169,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 18px;
-  color: var(--ink);
+  color: var(--brass-contrast);
   margin-bottom: 18px;
 }
 
@@ -1188,7 +1345,7 @@ a {
 
 .badge-cat {
   background: var(--brass);
-  color: var(--ink);
+  color: var(--brass-contrast);
 }
 
 .despesa-obs {
@@ -1397,6 +1554,46 @@ a {
 
 /* ---------- Gestão de Usuários ---------- */
 
+/* Cabeçalho recolhível do formulário de cadastro de usuários */
+.form-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 14px;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.form-toggle-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.form-toggle-texto strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.form-toggle-ajuda {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.form-toggle-seta {
+  font-size: 12px;
+  color: var(--brass-dark);
+}
+
+.form-toggle:hover .form-toggle-ajuda {
+  text-decoration: underline;
+}
+
 .usuarios-resumo {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1489,7 +1686,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
-  color: var(--ink);
+  color: var(--brass-contrast);
   flex-shrink: 0;
 }
 
@@ -1580,7 +1777,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 40px;
-  color: var(--ink);
+  color: var(--brass-contrast);
 }
 
 .logo-acoes {
@@ -1789,7 +1986,7 @@ a {
   min-width: 28px;
   border-radius: 50%;
   background: var(--brass);
-  color: var(--ink);
+  color: var(--brass-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
