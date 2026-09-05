@@ -2,9 +2,10 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export default function Login() {
-  const { login, signUpAdmin, signUpMember } = useAuth()
+  const { login, signUpAdmin, signUpMember, enviarRedefinicaoSenha } = useAuth()
   const [tela, setTela] = useState('login')
   const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
   const [carregando, setCarregando] = useState(false)
 
   const [loginEmail, setLoginEmail] = useState('')
@@ -18,6 +19,7 @@ export default function Login() {
   const [membroEmail, setMembroEmail] = useState('')
   const [membroSenha, setMembroSenha] = useState('')
   const [membroCodigo, setMembroCodigo] = useState('')
+  const [recuperarEmail, setRecuperarEmail] = useState('')
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -65,6 +67,20 @@ export default function Login() {
     setCarregando(false)
   }
 
+  async function handleRecuperar(e) {
+    e.preventDefault()
+    setErro('')
+    setSucesso('')
+    setCarregando(true)
+    try {
+      await enviarRedefinicaoSenha(recuperarEmail)
+      setSucesso(`Enviamos um link de redefinição para ${recuperarEmail.trim()}. Abra o e-mail e siga as instruções para criar uma nova senha.`)
+    } catch (err) {
+      setErro(err?.message || 'Não foi possível enviar o e-mail de redefinição. Tente novamente.')
+    }
+    setCarregando(false)
+  }
+
   function tratarErro(err) {
     const code = err?.code || ''
     const msg = err?.message || ''
@@ -101,6 +117,7 @@ export default function Login() {
             )}
           </div>
         )}
+        {sucesso && <div className="login-sucesso">{sucesso}</div>}
         {tela === 'login' && (
           <form onSubmit={handleLogin}>
             <div className="field">
@@ -114,9 +131,14 @@ export default function Login() {
             <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
               {carregando ? 'Entrando...' : 'Entrar'}
             </button>
+            <div className="login-links">
+              <button type="button" className="link-btn" onClick={() => { setTela('recuperar'); setErro(''); setSucesso('') }}>
+                Esqueci minha senha
+              </button>
+            </div>
             <p className="login-hint">Moradores criam a conta com o código do condomínio. Zeladores e porteiros são cadastrados pelo síndico em Gestão de usuários.</p>
             <div className="login-links">
-              <button type="button" className="link-btn" onClick={() => { setTela('entrarCondominio'); setErro('') }}>
+              <button type="button" className="link-btn" onClick={() => { setTela('entrarCondominio'); setErro(''); setSucesso('') }}>
                 Sou morador — criar conta com o código do condomínio
               </button>
             </div>
@@ -149,7 +171,7 @@ export default function Login() {
               {carregando ? 'Criando...' : 'Criar condomínio'}
             </button>
             <div className="login-links">
-              <button type="button" className="link-btn" onClick={() => { setTela('login'); setErro('') }}>← Voltar ao login</button>
+              <button type="button" className="link-btn" onClick={() => { setTela('login'); setErro(''); setSucesso('') }}>← Voltar ao login</button>
             </div>
           </form>
         )}
@@ -177,7 +199,23 @@ export default function Login() {
               {carregando ? 'Criando conta...' : 'Criar conta e entrar'}
             </button>
             <div className="login-links">
-              <button type="button" className="link-btn" onClick={() => { setTela('login'); setErro('') }}>← Voltar ao login</button>
+              <button type="button" className="link-btn" onClick={() => { setTela('login'); setErro(''); setSucesso('') }}>← Voltar ao login</button>
+            </div>
+          </form>
+        )}
+        {tela === 'recuperar' && (
+          <form onSubmit={handleRecuperar}>
+            <p className="form-titulo">Recuperar senha</p>
+            <div className="field">
+              <label htmlFor="recuperar-email">E-mail da conta</label>
+              <input id="recuperar-email" type="email" value={recuperarEmail} onChange={(e) => setRecuperarEmail(e.target.value)} placeholder="seu@email.com" required />
+            </div>
+            <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
+              {carregando ? 'Enviando...' : 'Enviar link de redefinição'}
+            </button>
+            <p className="login-hint">Você vai receber um e-mail com um link seguro para criar uma nova senha. Se não chegar em alguns minutos, verifique a caixa de spam.</p>
+            <div className="login-links">
+              <button type="button" className="link-btn" onClick={() => { setTela('login'); setErro(''); setSucesso('') }}>← Voltar ao login</button>
             </div>
           </form>
         )}
