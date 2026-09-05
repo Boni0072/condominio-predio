@@ -116,6 +116,7 @@ a {
 }
 
 .sidebar {
+  position: relative;
   width: 220px;
   flex-shrink: 0;
   background: var(--ink);
@@ -124,6 +125,7 @@ a {
   flex-direction: column;
   padding: 20px 14px;
   gap: 4px;
+  transition: width 0.18s ease;
 }
 
 .sidebar-brand {
@@ -226,6 +228,50 @@ a {
   padding: 0;
   font-size: 12px;
   margin-top: 6px;
+}
+
+/* ---------- Recolher/expandir menu lateral ---------- */
+
+.sidebar-toggle {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: #9aa8ae;
+  font-size: 15px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--paper);
+}
+
+.sidebar.recolhido {
+  width: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.sidebar.recolhido > *:not(.sidebar-toggle) {
+  display: none;
+}
+
+.sidebar.recolhido .sidebar-toggle {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  align-self: flex-start;
+  padding: 6px 10px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--brass-tint-45);
+  border-left: none;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  font-size: 14px;
+  z-index: 5;
 }
 
 /* ---------- Botão de instalação do PWA (menu lateral) ---------- */
@@ -2619,6 +2665,25 @@ a {
   }
   .nav-link.active {
     border-bottom-color: var(--brass);
+  }
+  .sidebar-toggle {
+    display: none;
+  }
+  .sidebar.recolhido {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 14px;
+  }
+  .sidebar.recolhido > *:not(.sidebar-toggle) {
+    display: block;
+  }
+  .sidebar.recolhido .sidebar-brand,
+  .sidebar.recolhido .sidebar-footer {
+    display: none;
+  }
+  .sidebar.recolhido .nav-link {
+    padding: 10px 10px;
   }
   .main {
     padding: 18px 16px 40px;

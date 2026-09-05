@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { temAcesso } from '../utils/permissoes.js'
+import { load, save } from '../utils/storage.js'
 import BotaoInstalar from './shared/BotaoInstalar.jsx'
 
 const ROLE_LABEL = {
@@ -15,11 +16,31 @@ export default function Layout() {
   const { userProfile, condominio, logout } = useAuth()
   const role = userProfile?.role
   const nomeUsuario = userProfile?.nome?.trim() || userProfile?.email?.split('@')[0] || 'Usuário'
+  const [recolhido, setRecolhido] = useState(() => load('sidebar_recolhido', false))
+
+  function alternarSidebar() {
+    setRecolhido((atual) => {
+      const novo = !atual
+      save('sidebar_recolhido', novo)
+      return novo
+    })
+  }
 
   return (
     <div className="app-shell">
       <div className="app-body">
-        <nav className="sidebar">
+        <nav className={'sidebar' + (recolhido ? ' recolhido' : '')}>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={alternarSidebar}
+            title={recolhido ? 'Expandir menu' : 'Recolher menu'}
+            aria-label={recolhido ? 'Expandir menu' : 'Recolher menu'}
+            aria-expanded={!recolhido}
+          >
+            {recolhido ? '»' : '«'}
+          </button>
+
           <div className="sidebar-brand">
             {condominio?.logo ? (
               <img src={condominio.logo} alt="Logo do condomínio" className="logo-img" />
@@ -79,7 +100,7 @@ export default function Layout() {
             </NavLink>
           )}
 
-                    <div className="sidebar-footer">
+          <div className="sidebar-footer">
             <BotaoInstalar />
             <div className="user-info">
               <div className="user-info-header">
