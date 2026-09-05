@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function eMaster() {
+      return autenticado() && request.auth.token.email == 'ander.fj@hotmail.com';
+    }
+
+    function perfilAtual() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function eSindicoDoCondominio(condominioId) {
+      return autenticado()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && perfilAtual().role == 'sindico'
+        && perfilAtual().condominioId == condominioId;
+    }
+
+    function pertenceAoCondominio(condominioId) {
+      return eMaster()
+        || (autenticado()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && perfilAtual().condominioId == condominioId);
+    }
+
+    function podeEscreverNoCondominio(condominioId) {
+      return eMaster()
+        || eSindicoDoCondominio(condominioId)
+        || (pertenceAoCondominio(condominioId)
+          && (perfilAtual().role == 'zelador' || perfilAtual().role == 'portaria'));
+    }
+
+    match /users/{userId} {
+      allow read: if eMaster()
+        || (autenticado()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && (request.auth.uid == userId
+            || resource.data.condominioId == perfilAtual().condominioId));
+      allow create: if eMaster()
+        || (autenticado() && (request.auth.uid == userId
+          || eSindicoDoCondominio(request.resource.data.condominioId)));
+      allow update, delete: if eMaster() || (autenticado()
+        && (request.auth.uid == userId
+          || eSindicoDoCondominio(resource.data.condominioId)));
+    }
+
+    match /condominios/{condominioId} {
+      // Leitura liberada para qualquer usuário autenticado: é o que permite
+      // localizar o condomínio pelo código de acesso no cadastro do morador.
+      allow read: if autenticado();
+      allow create: if eMaster();
+      allow update, delete: if eMaster() || eSindicoDoCondominio(condominioId);
+    }
+
+    match /condominios/{condominioId}/votos/{votoId} {
+      allow read: if pertenceAoCondominio(condominioId);
+      allow create: if pertenceAoCondominio(condominioId)
+        && request.resource.data.usuarioId == request.auth.uid
+        && request.resource.data.id == votoId;
+      allow update, delete: if eMaster();
+    }
+
+    match /condominios/{condominioId}/{documento=**} {
+      allow read: if pertenceAoCondominio(condominioId);
+      allow write: if podeEscreverNoCondominio(condominioId);
+    }
+  }
+}
