@@ -6,7 +6,7 @@ service cloud.firestore {
     }
 
     function eMaster() {
-      return autenticado() && request.auth.token.email == 'ander.fj@hotmail.com';
+      return autenticado() && request.auth.token.email.lower() == 'ander.fj@hotmail.com';
     }
 
     function perfilAtual() {
@@ -35,11 +35,13 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
+      // O usuário pode ler o próprio perfil mesmo que ele ainda não exista
+      // (necessário durante o cadastro do morador, antes da gravação do perfil).
       allow read: if eMaster()
+        || (autenticado() && request.auth.uid == userId)
         || (autenticado()
           && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-          && (request.auth.uid == userId
-            || resource.data.condominioId == perfilAtual().condominioId));
+          && resource.data.condominioId == perfilAtual().condominioId);
       allow create: if eMaster()
         || (autenticado() && (request.auth.uid == userId
           || eSindicoDoCondominio(request.resource.data.condominioId)));

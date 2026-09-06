@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export default function Login() {
-  const { login, signUpAdmin, signUpMember, enviarRedefinicaoSenha } = useAuth()
+  const { login, signUpAdmin, signUpMember, enviarRedefinicaoSenha, erroConexao } = useAuth()
   const [tela, setTela] = useState('login')
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
@@ -26,7 +26,7 @@ export default function Login() {
     setErro('')
     setCarregando(true)
     try {
-      await login({ email: loginEmail, password: loginSenha })
+      await login({ email: loginEmail.trim(), password: loginSenha })
     } catch (err) {
       tratarErro(err)
     }
@@ -39,7 +39,7 @@ export default function Login() {
     setCarregando(true)
     try {
       await signUpAdmin({
-        email: adminEmail,
+        email: adminEmail.trim(),
         senha: adminSenha,
         nome: adminNome,
         condominoNome: adminCondominio,
@@ -57,11 +57,11 @@ export default function Login() {
       // Moradores criam a própria conta pelo código do condomínio.
       // Zeladores e porteiros são cadastrados pelo síndico em Gestão de usuários.
       await signUpMember({
-        email: membroEmail,
+        email: membroEmail.trim(),
         senha: membroSenha,
         nome: membroNome,
         role: 'morador',
-        condominioCodigo: membroCodigo.toUpperCase()
+        condominioCodigo: membroCodigo.trim().toUpperCase()
       })
     } catch (err) { tratarErro(err) }
     setCarregando(false)
@@ -89,9 +89,10 @@ export default function Login() {
     else if (code === 'auth/weak-password') setErro('A senha deve ter pelo menos 6 caracteres.')
     else if (code === 'auth/wrong-password') setErro('Senha incorreta.')
     else if (code === 'auth/user-not-found') setErro('Usuário não encontrado.')
-    else if (code === 'auth/invalid-credential') setErro('E-mail ou senha incorretos.')
+    else if (code === 'auth/invalid-credential') setErro('E-mail ou senha incorretos. Se a conta já existe, use "Esqueci minha senha" abaixo para redefinir a senha e tente novamente.')
+    else if (code === 'auth/too-many-requests') setErro('Muitas tentativas. Aguarde alguns minutos e tente novamente.')
     else if (code === 'auth/configuration-not-found') setErro('Firebase não configurado. Habilite Authentication e Firestore no console.')
-    else if (msg.includes('permission')) setErro('Erro de permissão. Verifique as regras do Firestore.')
+    else if (code === 'permission-denied' || msg.includes('permission')) setErro('Erro de permissão. Verifique se as regras do Firestore (firestore.rules) foram publicadas no console.')
     else setErro(msg || 'Ocorreu um erro. Tente novamente.')
   }
 
@@ -118,6 +119,19 @@ export default function Login() {
           </div>
         )}
         {sucesso && <div className="login-sucesso">{sucesso}</div>}
+        {erroConexao && (
+          <div className="login-erro">
+            {erroConexao}
+            <div className="login-ajuda">
+              Verifique sua conexão com a internet e as regras do Firestore no console do Firebase.
+              <div style={{ marginTop: 8 }}>
+                <button type="button" className="btn btn-small btn-ghost" onClick={() => window.location.reload()}>
+                  Tentar novamente
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {tela === 'login' && (
           <form onSubmit={handleLogin}>
             <div className="field">

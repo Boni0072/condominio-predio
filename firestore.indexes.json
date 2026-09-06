@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "condominios",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "codigo", "order": "ASCENDING" },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

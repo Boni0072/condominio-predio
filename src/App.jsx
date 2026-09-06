@@ -2,6 +2,7 @@ import React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
 import Login from './components/Login.jsx'
+import CompletarCadastro from './components/CompletarCadastro.jsx'
 import Layout from './components/Layout.jsx'
 import Painel from './components/painel/Painel.jsx'
 import Portaria, {
@@ -32,6 +33,11 @@ export default function App() {
 
   if (!user || !userProfile) {
     return <Login />
+  }
+
+  // Conta autenticada, mas cadastro no condomínio não concluído.
+  if (userProfile.perfilPendente) {
+    return <CompletarCadastro />
   }
 
   const acessos = acessosDoUsuario(userProfile)
