@@ -257,6 +257,7 @@ export default function Despesas() {
   const { userProfile } = useAuth()
   const { despesas } = useApp()
   const [editando, setEditando] = useState(null)
+  const [formularioAberto, setFormularioAberto] = useState(false)
   const [busca, setBusca] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [periodoMes, setPeriodoMes] = useState('')
@@ -304,7 +305,26 @@ export default function Despesas() {
         </div>
       </div>
 
-      {!somenteLeitura && !editando && <DespesaForm editando={null} onConcluir={() => setEditando(null)} />}
+      {!somenteLeitura && !editando && (
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Nova despesa</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small panel-toggle"
+              onClick={() => setFormularioAberto((v) => !v)}
+              aria-expanded={formularioAberto}
+            >
+              {formularioAberto ? '▾ Recolher' : '▸ Expandir'}
+            </button>
+          </div>
+          {formularioAberto && (
+            <div className="panel-body">
+              <DespesaForm editando={null} onConcluir={() => setEditando(null)} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <div className="despesas-resumo">

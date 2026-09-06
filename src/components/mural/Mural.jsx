@@ -119,6 +119,7 @@ export default function Mural() {
   const { comunicados } = useApp()
   const { userProfile } = useAuth()
   const canManage = userProfile?.role === 'sindico'
+  const [formularioAberto, setFormularioAberto] = useState(false)
 
   const ordenados = [...comunicados].sort((a, b) => {
     if (a.fixado !== b.fixado) return a.fixado ? -1 : 1
@@ -139,10 +140,20 @@ export default function Mural() {
           <div className="panel">
             <div className="panel-header">
               <h2>Novo comunicado</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small panel-toggle"
+                onClick={() => setFormularioAberto((v) => !v)}
+                aria-expanded={formularioAberto}
+              >
+                {formularioAberto ? '▾ Recolher' : '▸ Expandir'}
+              </button>
             </div>
-            <div className="panel-body">
-              <ComunicadoForm />
-            </div>
+            {formularioAberto && (
+              <div className="panel-body">
+                <ComunicadoForm />
+              </div>
+            )}
           </div>
         )}
 
