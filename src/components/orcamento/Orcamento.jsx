@@ -135,7 +135,7 @@ export default function Orcamento() {
       </div>
 
       <div className="orcamento-layout">
-        <form className="card orcamento-form" onSubmit={handleSubmit}>
+        <div className="card orcamento-form">
           <div className="panel-header">
             <h3>Definir orçamento</h3>
             <button type="button" className="btn btn-ghost btn-small" onClick={() => setFormAberto(!formAberto)} aria-expanded={formAberto}>
@@ -143,7 +143,7 @@ export default function Orcamento() {
             </button>
           </div>
           {formAberto && (
-            <>
+            <form onSubmit={handleSubmit}>
               <p className="field-help">O mesmo mês e categoria atualizam o valor já cadastrado.</p>
               <div className="field">
                 <label htmlFor="orcamento-mes">Mês</label>
@@ -162,26 +162,28 @@ export default function Orcamento() {
                 <input id="orcamento-valor" type="number" min="0.01" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="0,00" required />
               </div>
               <button type="submit" className="btn btn-brass btn-block">Salvar orçamento</button>
-            </>
-          )}
-        </form>
-
-        <div className="card orcamento-lista-configurada">
-          <div className="panel-header">
-            <div><h3>Valores configurados</h3><p className="field-help">{orcamentosDoAno.length} item(ns) em {ano}</p></div>
-          </div>
-          {orcamentosDoAno.length === 0 ? <p className="empty">Nenhum orçamento definido para este ano.</p> : (
-            <div className="orcamento-itens">
-              {orcamentosDoAno.sort((a, b) => a.mes - b.mes).map((item) => (
-                <div className="orcamento-item" key={item.id}>
-                  <div><strong>{MESES[item.mes - 1]}</strong><span>{CATEGORIAS.find((categoria) => categoria.id === item.categoria)?.label || item.categoria}</span></div>
-                  <strong>{dinheiro(item.valor)}</strong>
-                  <button type="button" className="btn btn-small btn-danger" onClick={() => removerOrcamento(item.id)}>Remover</button>
-                </div>
-              ))}
-            </div>
+            </form>
           )}
         </div>
+
+        {formAberto && (
+          <div className="card orcamento-lista-configurada">
+            <div className="panel-header">
+              <div><h3>Valores configurados</h3><p className="field-help">{orcamentosDoAno.length} item(ns) em {ano}</p></div>
+            </div>
+            {orcamentosDoAno.length === 0 ? <p className="empty-state">Nenhum orçamento definido para este ano.</p> : (
+              <div className="orcamento-itens">
+                {orcamentosDoAno.sort((a, b) => a.mes - b.mes).map((item) => (
+                  <div className="orcamento-item" key={item.id}>
+                    <div><strong>{MESES[item.mes - 1]}</strong><span>{CATEGORIAS.find((categoria) => categoria.id === item.categoria)?.label || item.categoria}</span></div>
+                    <strong>{dinheiro(item.valor)}</strong>
+                    <button type="button" className="btn btn-small btn-danger" onClick={() => removerOrcamento(item.id)}>Remover</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <section className="card orcamento-grafico-card">
