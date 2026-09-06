@@ -1,3 +1,5 @@
+import { digitosTelefone, formatarWhatsApp, normalizarWhatsApp } from '../../utils/whatsapp.js'
+
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { db } from '../../firebase/config.js'
@@ -58,6 +60,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
     senha: '',
     role: perfilInicial,
     unidade: '',
+    whatsapp: '',
     acessos: ACESSOS_POR_PERFIL.portaria
   })
   const [erro, setErro] = useState('')
@@ -73,10 +76,11 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         senha: '',
         role: perfilInicial,
         unidade: editando.unidade || '',
+        whatsapp: editando.whatsapp || '',
         acessos: editando.acessos || ACESSOS_POR_PERFIL[editando.role] || ACESSOS_POR_PERFIL.morador
       })
     } else {
-      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', acessos: ACESSOS_POR_PERFIL.portaria })
+      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', acessos: ACESSOS_POR_PERFIL.portaria })
     }
     setErro('')
   }, [editando])
@@ -105,6 +109,10 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
     if (!form.nome.trim()) return setErro('Nome obrigatório.')
     if (!form.email.includes('@')) return setErro('Email inválido.')
     if (!form.unidade.trim()) return setErro('Informe o bloco e o apartamento.')
+    const whatsappLimpo = digitosTelefone(form.whatsapp)
+    if (whatsappLimpo && !normalizarWhatsApp(whatsappLimpo)) {
+      return setErro('WhatsApp inválido. Use DDD + número, ex.: (11) 98765-4321.')
+    }
     if (!editando && form.senha.length < 6) return setErro('Senha mínima 6 caracteres.')
     if (!form.acessos.length) return setErro('Selecione pelo menos uma página de acesso.')
     setCarregando(true)
@@ -114,6 +122,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
           nome: form.nome.trim(),
           role: form.role,
           unidade: form.unidade.trim(),
+          whatsapp: whatsappLimpo,
           acessos: form.acessos
         })
         window.alert('Usuário atualizado com sucesso.')
@@ -175,6 +184,10 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
           <div className="field">
             <label>Bloco e apartamento *</label>
             <input name="unidade" value={form.unidade} onChange={handleChange} placeholder="Ex.: Bloco 2 Apto E10" required />
+          </div>
+          <div className="field">
+            <label>WhatsApp (para notificações)</label>
+            <input name="whatsapp" value={form.whatsapp} onChange={handleChange} placeholder="Ex.: (11) 98765-4321" />
           </div>
         </div>
         <fieldset className="acessos-fieldset">
@@ -402,6 +415,7 @@ export default function Usuarios() {
                   <strong>{u.nome || (u.email || '').split('@')[0]}</strong>
                   <span className="usuario-email">{u.email || '—'}</span>
                   {u.unidade && <span className="usuario-unidade">{u.unidade}</span>}
+                  {u.whatsapp && <span className="usuario-whatsapp">WhatsApp: {formatarWhatsApp(u.whatsapp)}</span>}
                   {dataExibicao(u.criadoEm) && (
                     <span className="usuario-criado">Criado em {dataExibicao(u.criadoEm)}</span>
                   )}

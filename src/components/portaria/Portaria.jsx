@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext.jsx'
 import { formatDateTime } from '../../utils/storage.js'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import AssinaturaRetiradaModal from './AssinaturaRetiradaModal.jsx'
-import { AvisoEncomendaWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
+import { AvisoEncomendaWhatsApp, AvisoVisitanteWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
 
 function VisitanteForm() {
   const { registrarVisitante, moradores } = useApp()
@@ -165,6 +165,7 @@ function VisitantesList() {
             ) : (
               <>
                 <span className="badge badge-green">No condomínio</span>
+                <AvisoVisitanteWhatsApp visitante={v} />
                 <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
                   Registrar saída
                 </button>
@@ -362,7 +363,7 @@ function EncomendaForm() {
 }
 
 function EncomendasList() {
-  const { encomendas, confirmarRetirada, removerEncomenda, moradores } = useApp()
+  const { encomendas, confirmarRetirada, removerEncomenda, moradores, registrarAvisoEncomenda } = useApp()
   const [retiradaModal, setRetiradaModal] = useState(null)
 
   if (encomendas.length === 0) {
@@ -393,6 +394,7 @@ function EncomendasList() {
                 <span>{e.unidade}</span>
                 {e.transportadora && <span>· {e.transportadora}</span>}
                 <span>· chegou {formatDateTime(e.chegadaEm)}</span>
+                {e.avisadoEm && <span className="encomenda-avisado">· 📢 avisado {formatDateTime(e.avisadoEm)}</span>}
                 {e.retiradaEm && <span>· retirada {formatDateTime(e.retiradaEm)}</span>}
               </div>
             </div>
@@ -419,7 +421,7 @@ function EncomendasList() {
               ) : (
                 <>
                   <span className="badge badge-brick">Aguardando retirada</span>
-                  <AvisoEncomendaWhatsApp encomenda={e} />
+                  <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />
                   <button className="btn btn-ghost btn-small" onClick={() => setRetiradaModal(e)}>
                     Marcar retirada
                   </button>

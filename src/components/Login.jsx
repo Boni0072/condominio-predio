@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { digitosTelefone, normalizarWhatsApp } from '../utils/whatsapp.js'
 
 export default function Login() {
   const { login, signUpAdmin, signUpMember, enviarRedefinicaoSenha, erroConexao } = useAuth()
@@ -19,6 +20,8 @@ export default function Login() {
   const [membroEmail, setMembroEmail] = useState('')
   const [membroSenha, setMembroSenha] = useState('')
   const [membroCodigo, setMembroCodigo] = useState('')
+  const [membroWhatsapp, setMembroWhatsapp] = useState('')
+  const [adminWhatsapp, setAdminWhatsapp] = useState('')
   const [recuperarEmail, setRecuperarEmail] = useState('')
 
   async function handleLogin(e) {
@@ -36,6 +39,11 @@ export default function Login() {
   async function handleSignUpAdmin(e) {
     e.preventDefault()
     setErro('')
+    const whatsappAdmin = digitosTelefone(adminWhatsapp)
+    if (whatsappAdmin && !normalizarWhatsApp(whatsappAdmin)) {
+      setErro('WhatsApp do síndico inválido. Use DDD + número, ex.: (11) 98765-4321.')
+      return
+    }
     setCarregando(true)
     try {
       await signUpAdmin({
@@ -43,7 +51,8 @@ export default function Login() {
         senha: adminSenha,
         nome: adminNome,
         condominoNome: adminCondominio,
-        endereco: adminEndereco
+        endereco: adminEndereco,
+        whatsapp: whatsappAdmin
       })
     } catch (err) { tratarErro(err) }
     setCarregando(false)
@@ -52,6 +61,11 @@ export default function Login() {
   async function handleSignUpMember(e) {
     e.preventDefault()
     setErro('')
+    const whatsappMembro = digitosTelefone(membroWhatsapp)
+    if (whatsappMembro && !normalizarWhatsApp(whatsappMembro)) {
+      setErro('WhatsApp inválido. Use DDD + número, ex.: (11) 98765-4321.')
+      return
+    }
     setCarregando(true)
     try {
       // Moradores criam a própria conta pelo código do condomínio.
@@ -61,7 +75,8 @@ export default function Login() {
         senha: membroSenha,
         nome: membroNome,
         role: 'morador',
-        condominioCodigo: membroCodigo.trim().toUpperCase()
+        condominioCodigo: membroCodigo.trim().toUpperCase(),
+        whatsapp: whatsappMembro
       })
     } catch (err) { tratarErro(err) }
     setCarregando(false)
@@ -181,6 +196,10 @@ export default function Login() {
               <label htmlFor="admin-endereco">Endereço (opcional)</label>
               <input id="admin-endereco" value={adminEndereco} onChange={(e) => setAdminEndereco(e.target.value)} placeholder="Rua, número, bairro" />
             </div>
+            <div className="field">
+              <label htmlFor="admin-whatsapp">WhatsApp (para notificações)</label>
+              <input id="admin-whatsapp" type="tel" value={adminWhatsapp} onChange={(e) => setAdminWhatsapp(e.target.value)} placeholder="Ex.: (11) 98765-4321" />
+            </div>
             <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
               {carregando ? 'Criando...' : 'Criar condomínio'}
             </button>
@@ -208,6 +227,10 @@ export default function Login() {
               <label htmlFor="membro-codigo">Código do condomínio</label>
               <input id="membro-codigo" value={membroCodigo} onChange={(e) => setMembroCodigo(e.target.value)} placeholder="Ex.: ABC123" style={{ textTransform: 'uppercase' }} required />
               <p className="login-hint">Peça o código ao síndico do seu condomínio.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="membro-whatsapp">WhatsApp (para notificações)</label>
+              <input id="membro-whatsapp" type="tel" value={membroWhatsapp} onChange={(e) => setMembroWhatsapp(e.target.value)} placeholder="Ex.: (11) 98765-4321" />
             </div>
             <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
               {carregando ? 'Criando conta...' : 'Criar conta e entrar'}

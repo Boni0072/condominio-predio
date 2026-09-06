@@ -132,6 +132,7 @@ export function AuthProvider({ children }) {
       uid: firebaseUser.uid,
       email,
       nome: dados.nome,
+      whatsapp: dados.whatsapp || '',
       role: 'sindico',
       condominioId: firebaseUser.uid,
       status: 'ativo',
@@ -208,6 +209,7 @@ export function AuthProvider({ children }) {
         uid: firebaseUser.uid,
         email,
         nome: dados.nome,
+        whatsapp: dados.whatsapp || '',
         role,
         condominioId,
         status: 'ativo',
@@ -234,9 +236,9 @@ export function AuthProvider({ children }) {
 
   // Conclui o cadastro de uma conta autenticada que ainda não tem perfil
   // (tela "Completar cadastro": usuário informa o código do condomínio).
-  async function completarCadastroMorador(codigo) {
+  async function completarCadastroMorador(dados) {
     if (!user) throw new Error('Nenhuma sessão ativa. Entre com seu e-mail e senha.')
-    const codigoCondominio = String(codigo || '').trim().toUpperCase()
+    const codigoCondominio = String(dados?.codigo || '').trim().toUpperCase()
     const q = query(
       collection(db, 'condominios'),
       where('codigo', '==', codigoCondominio),
@@ -254,6 +256,7 @@ export function AuthProvider({ children }) {
       uid: user.uid,
       email,
       nome,
+      whatsapp: dados?.whatsapp || '',
       role: 'morador',
       condominioId,
       status: 'ativo',
@@ -284,6 +287,7 @@ export function AuthProvider({ children }) {
         uid: firebaseUser.uid,
         email,
         nome: dados.nome,
+        whatsapp: dados.whatsapp || '',
         role: dados.role || 'morador',
         unidade: dados.unidade?.trim() || '',
         acessos: dados.acessos || [],

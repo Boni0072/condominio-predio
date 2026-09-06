@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { digitosTelefone, normalizarWhatsApp } from '../utils/whatsapp.js'
 
 // Tela exibida quando a conta está autenticada mas o cadastro no condomínio
 // não foi concluído (perfil ausente no Firestore). O usuário informa o código
@@ -7,6 +8,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 export default function CompletarCadastro() {
   const { user, userProfile, completarCadastroMorador, logout } = useAuth()
   const [codigo, setCodigo] = useState('')
+  const [whatsapp, setWhatsapp] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
 
@@ -14,9 +16,13 @@ export default function CompletarCadastro() {
     e.preventDefault()
     setErro('')
     if (!codigo.trim()) return setErro('Informe o código do condomínio.')
+    const whatsappLimpo = digitosTelefone(whatsapp)
+    if (whatsappLimpo && !normalizarWhatsApp(whatsappLimpo)) {
+      return setErro('WhatsApp inválido. Use DDD + número, ex.: (11) 98765-4321.')
+    }
     setCarregando(true)
     try {
-      await completarCadastroMorador(codigo)
+      await completarCadastroMorador({ codigo, whatsapp: whatsappLimpo })
       // Ao concluir, o perfil é atualizado no contexto e o App entra automaticamente.
     } catch (err) {
       setErro(err?.message || 'Não foi possível concluir o cadastro. Tente novamente.')
@@ -48,6 +54,16 @@ export default function CompletarCadastro() {
             <p className="login-hint">
               Peça o código ao síndico do seu condomínio (ele aparece nas Configurações, em "Código de acesso do condomínio").
             </p>
+          </div>
+          <div className="field">
+            <label htmlFor="whatsapp-completar">WhatsApp (para notificações)</label>
+            <input
+              id="whatsapp-completar"
+              type="tel"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              placeholder="Ex.: (11) 98765-4321"
+            />
           </div>
           <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
             {carregando ? 'Vinculando...' : 'Entrar no condomínio'}

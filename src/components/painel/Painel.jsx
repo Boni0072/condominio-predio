@@ -180,20 +180,20 @@ function AtividadeRecente({ periodoMes }) {
   })
 
   encomendas.forEach((e) => {
+    const status = e.retiradaEm
+      ? `Retirada${e.assinatura ? ' — com assinatura' : ''}`
+      : 'Aguardando retirada'
+    const recebida = formatDateTime(e.chegadaEm)
+    const retirada = e.retiradaEm ? formatDateTime(e.retiradaEm) : '—'
+    const corStatus = e.retiradaEm ? 'status-retirada' : 'status-pendente'
     eventos.push({
-      quando: e.chegadaEm,
+      quando: e.retiradaEm || e.chegadaEm,
       tipo: 'Encomenda',
-      tom: 'badge-brick',
-      texto: `Encomenda chegou para ${e.unidade}${e.transportadora ? ` (${e.transportadora})` : ''}`
+      tom: e.retiradaEm ? 'badge-green' : 'badge-brick',
+      texto: `<span class="${corStatus}">${status}</span> — ${e.unidade}${e.transportadora ? ` (${e.transportadora})` : ''} · recebida ${recebida} · retirada ${retirada}`,
+      semHora: true,
+      html: true
     })
-    if (e.retiradaEm) {
-      eventos.push({
-        quando: e.retiradaEm,
-        tipo: 'Retirada',
-        tom: 'badge-green',
-        texto: `Encomenda retirada em ${e.unidade}${e.assinatura ? ' — com assinatura' : ''}`
-      })
-    }
   })
 
   comunicados.forEach((c) => {
@@ -218,9 +218,12 @@ function AtividadeRecente({ periodoMes }) {
     <div>
       {recentes.map((ev, i) => (
         <div className="feed-item" key={i}>
-          <span className="feed-hora">{formatDateTime(ev.quando)}</span>
+          {!ev.semHora && <span className="feed-hora">{formatDateTime(ev.quando)}</span>}
           <span className={`badge ${ev.tom}`}>{ev.tipo}</span>
-          <span className="feed-texto">{ev.texto}</span>
+          {ev.html
+            ? <span className="feed-texto" dangerouslySetInnerHTML={{ __html: ev.texto }} />
+            : <span className="feed-texto">{ev.texto}</span>
+          }
         </div>
       ))}
     </div>
@@ -278,6 +281,7 @@ export default function Painel() {
   const moradoresDoPeriodo = moradores.filter((m) => noMes(m.criadoEm, periodoMes))
   const comunicadosDoPeriodo = comunicados.filter((c) => noMes(c.criadoEm, periodoMes))
   const aguardando = encomendasDoPeriodo.filter((e) => !e.retiradaEm).length
+  const entregues = encomendasDoPeriodo.filter((e) => e.retiradaEm).length
   const unidades = new Set(moradoresDoPeriodo.map((m) => String(m.unidade || '').trim().toLowerCase())).size
 
   // Calcula as despesas dentro do intervalo selecionado
@@ -330,6 +334,12 @@ export default function Painel() {
           num={aguardando}
           label="encomendas aguardando retirada"
           tom={aguardando > 0 ? 'alerta' : 'ok'}
+        />
+        <KpiCard
+          to="/portaria/encomendas"
+          num={entregues}
+          label="encomendas entregues"
+          tom="ok"
         />
         <KpiCard
           to={userProfile?.role === 'sindico' ? '/usuarios' : '/painel'}

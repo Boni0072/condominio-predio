@@ -159,6 +159,31 @@ export function AppProvider({ children }) {
     removerDocumento('encomendas', id)
   }
 
+  // Registra a data/hora em que o aviso da encomenda foi enviado ao morador
+  function registrarAvisoEncomenda(id) {
+    const avisadoEm = nowISO()
+    // Atualiza estado local
+    setEncomendas((e) => {
+      const encontrado = e.find((item) => item.id === id)
+      if (!encontrado) {
+        console.warn('[AVISO ENCOMENDA] Encomenda não encontrada:', id)
+        return e
+      }
+      const atualizado = e.map((item) => (item.id === id ? { ...item, avisadoEm } : item))
+      // Backup no localStorage (persiste mesmo sem Firebase)
+      save(`${condominioId}_encomendas`, atualizado)
+      // Atualiza Firestore (sem esperar — fica em background)
+      if (firestoreAtivo) {
+        updateDoc(doc(db, 'condominios', condominioId, 'encomendas', id), { avisadoEm })
+          .then(() => console.log('[AVISO ENCOMENDA] Firestore atualizado para', id))
+          .catch((err) => console.error('[AVISO ERRO] Falha ao atualizar Firestore:', err.code, err.message))
+      } else {
+        console.warn('[AVISO ENCOMENDA] firestoreAtivo=false, salvo apenas no localStorage')
+      }
+      return atualizado
+    })
+  }
+
   // ---- Comunicados ----
   function criarComunicado(dados) {
     const item = { id: uid(), ...dados, criadoEm: nowISO() }
@@ -283,7 +308,7 @@ export function AppProvider({ children }) {
   const value = {
     condominioId,
     visitantes, registrarVisitante, registrarSaida, removerVisitante,
-    encomendas, registrarEncomenda, confirmarRetirada, removerEncomenda,
+    encomendas, registrarEncomenda, confirmarRetirada, removerEncomenda, registrarAvisoEncomenda,
     comunicados, criarComunicado, removerComunicado, alternarFixado,
     moradores, cadastrarMorador, atualizarMorador, removerMorador,
     despesas, registrarDespesa, atualizarDespesa, removerDespesa,

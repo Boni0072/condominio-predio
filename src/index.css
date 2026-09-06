@@ -608,6 +608,28 @@ a {
   border-bottom: none;
 }
 
+.status-retirada {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.status-pendente {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--brick-soft);
+  color: var(--brick);
+}
+
 .feed-hora {
   width: 108px;
   flex-shrink: 0;
@@ -1700,6 +1722,12 @@ a {
 .usuario-criado {
   font-size: 11px;
   color: var(--ink-soft);
+}
+
+.usuario-whatsapp {
+  font-size: 12px;
+  color: var(--green);
+  font-weight: 500;
 }
 
 .usuario-badges {
