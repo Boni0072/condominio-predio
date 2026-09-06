@@ -467,7 +467,7 @@ a {
 
 .filtro-cabecalho {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
@@ -477,10 +477,30 @@ a {
   gap: 6px;
   color: var(--ink-soft);
   font-size: 12px;
+  padding: 5px 8px;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filtro-periodo:hover {
+  border-color: var(--ink-soft);
+}
+
+.filtro-periodo span {
+  color: var(--ink-soft);
 }
 
 .filtro-periodo input {
   width: 142px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--ink);
+  outline: none;
 }
 
 .filtro-busca-cabecalho {

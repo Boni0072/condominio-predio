@@ -90,6 +90,7 @@ export default function Orcamento() {
   const [ano, setAno] = useState(anoAtual)
   const [form, setForm] = useState({ mes: new Date().getMonth() + 1, categoria: 'manutencao', valor: '' })
   const [mesDetalhado, setMesDetalhado] = useState(null)
+  const [formAberto, setFormAberto] = useState(false)
 
   const orcamentosDoAno = orcamentos.filter((item) => Number(item.ano) === Number(ano))
   const meses = useMemo(() => MESES.map((nome, indice) => {
@@ -135,25 +136,34 @@ export default function Orcamento() {
 
       <div className="orcamento-layout">
         <form className="card orcamento-form" onSubmit={handleSubmit}>
-          <h3>Definir orçamento</h3>
-          <p className="field-help">O mesmo mês e categoria atualizam o valor já cadastrado.</p>
-          <div className="field">
-            <label htmlFor="orcamento-mes">Mês</label>
-            <select id="orcamento-mes" value={form.mes} onChange={(e) => setForm({ ...form, mes: Number(e.target.value) })}>
-              {MESES.map((mes, indice) => <option key={mes} value={indice + 1}>{mes}</option>)}
-            </select>
+          <div className="panel-header">
+            <h3>Definir orçamento</h3>
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => setFormAberto(!formAberto)} aria-expanded={formAberto}>
+              {formAberto ? 'Recolher' : 'Expandir'}
+            </button>
           </div>
-          <div className="field">
-            <label htmlFor="orcamento-categoria">Categoria</label>
-            <select id="orcamento-categoria" value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
-              {CATEGORIAS.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.label}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="orcamento-valor">Valor previsto (R$)</label>
-            <input id="orcamento-valor" type="number" min="0.01" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="0,00" required />
-          </div>
-          <button type="submit" className="btn btn-brass btn-block">Salvar orçamento</button>
+          {formAberto && (
+            <>
+              <p className="field-help">O mesmo mês e categoria atualizam o valor já cadastrado.</p>
+              <div className="field">
+                <label htmlFor="orcamento-mes">Mês</label>
+                <select id="orcamento-mes" value={form.mes} onChange={(e) => setForm({ ...form, mes: Number(e.target.value) })}>
+                  {MESES.map((mes, indice) => <option key={mes} value={indice + 1}>{mes}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="orcamento-categoria">Categoria</label>
+                <select id="orcamento-categoria" value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
+                  {CATEGORIAS.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.label}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="orcamento-valor">Valor previsto (R$)</label>
+                <input id="orcamento-valor" type="number" min="0.01" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="0,00" required />
+              </div>
+              <button type="submit" className="btn btn-brass btn-block">Salvar orçamento</button>
+            </>
+          )}
         </form>
 
         <div className="card orcamento-lista-configurada">
