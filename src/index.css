@@ -77,6 +77,16 @@ h1, h2, h3, h4 {
   letter-spacing: -0.01em;
 }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+input, select, textarea {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 p {
   margin: 0;
   line-height: 1.55;
@@ -105,6 +115,7 @@ a {
 
 .app-shell {
   min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -718,7 +729,7 @@ a {
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .grid-2 {
     grid-template-columns: 1fr;
   }
@@ -2621,7 +2632,7 @@ a {
   color: var(--ink-soft);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   .assembleia-layout {
     grid-template-columns: 1fr;
   }
@@ -2685,7 +2696,7 @@ a {
   margin-top: -7px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1024px) {
   .orcamento-layout {
     grid-template-columns: 1fr;
   }
@@ -2697,6 +2708,26 @@ a {
   display: none;
 }
 
+/* ---------- Tablet (max-width: 1024px) ---------- */
+
+@media (max-width: 1024px) {
+  .main {
+    padding: 20px 24px 50px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .kpi-num {
+    font-size: 24px;
+  }
+  .acessos-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- Mobile / Tablet sidebar (max-width: 760px) ---------- */
+
 @media (max-width: 760px) {
   .app-body {
     flex-direction: column;
@@ -2705,8 +2736,9 @@ a {
     width: 100%;
     flex-direction: row;
     align-items: center;
-    padding: 10px 14px;
+    padding: 8px 12px;
     overflow-x: auto;
+    gap: 4px;
   }
   .sidebar-brand,
   .sidebar-footer {
@@ -2716,6 +2748,8 @@ a {
     white-space: nowrap;
     border-left: none;
     border-bottom: 3px solid transparent;
+    padding: 10px 12px;
+    font-size: 12.5px;
   }
   .nav-link.active {
     border-bottom-color: var(--brass);
@@ -2727,7 +2761,7 @@ a {
     width: 100%;
     flex-direction: row;
     align-items: center;
-    padding: 10px 14px;
+    padding: 8px 12px;
   }
   .sidebar.recolhido > *:not(.sidebar-toggle) {
     display: block;
@@ -2737,15 +2771,204 @@ a {
     display: none;
   }
   .sidebar.recolhido .nav-link {
-    padding: 10px 10px;
+    padding: 10px 12px;
   }
   .main {
-    padding: 18px 16px 40px;
+    padding: 16px 14px 40px;
   }
   .field-row {
     grid-template-columns: 1fr;
   }
   .acessos-grid {
     grid-template-columns: 1fr 1fr;
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .page-header {
+    margin-bottom: 16px;
+  }
+  .page-header h1 {
+    font-size: 20px;
+  }
+  .panel-header {
+    padding: 12px 14px;
+  }
+  .panel-body {
+    padding: 14px;
+  }
+  .btn {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .log-item {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .log-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .log-actions .btn-small {
+    padding: 6px 10px;
+    font-size: 11.5px;
+  }
+  .subnav {
+    margin-bottom: 16px;
+  }
+  .subnav a {
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .kpi-card {
+    padding: 14px;
+  }
+  .kpi-num {
+    font-size: 22px;
+  }
+  .modal {
+    max-width: 95%;
+    margin: 10px;
+  }
+  .modal-overlay {
+    padding: 10px;
+  }
+  .modal-body {
+    padding: 14px;
+  }
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+  .foto-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+  .encomenda-foto {
+    width: 48px;
+    height: 48px;
+  }
+  .btn-block {
+    width: 100%;
+  }
+}
+
+/* ---------- Small phones (max-width: 480px) ---------- */
+
+@media (max-width: 480px) {
+  .main {
+    padding: 12px calc(10px + env(safe-area-inset-left)) calc(36px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-right));
+  }
+  .page-header h1 {
+    font-size: 18px;
+  }
+  .page-header .sub {
+    font-size: 12px;
+  }
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .kpi-card {
+    padding: 12px;
+  }
+  .kpi-num {
+    font-size: 20px;
+  }
+  .kpi-label {
+    font-size: 11px;
+  }
+  .log-item {
+    flex-direction: column;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .log-tag {
+    width: auto;
+    font-size: 11px;
+  }
+  .log-name {
+    font-size: 13.5px;
+  }
+  .log-meta {
+    font-size: 11.5px;
+  }
+  .log-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .log-actions .btn-small {
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+    justify-content: center;
+  }
+  .panel-header h2 {
+    font-size: 13.5px;
+  }
+  .panel-toggle {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .subnav a {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .sidebar {
+    padding: 6px 8px;
+  }
+  .nav-link {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 2px 7px;
+  }
+  .acessos-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal {
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    max-height: 100%;
+  }
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal-header {
+    padding: 14px 16px;
+  }
+  .modal-body {
+    padding: 14px 16px;
+  }
+  .modal-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .modal-actions .btn {
+    width: 100%;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+  .empty-state {
+    padding: 30px 14px;
+    font-size: 13px;
   }
 }
