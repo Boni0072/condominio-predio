@@ -486,15 +486,27 @@ export default function Portaria() {
 }
 
 export function PortariaVisitantes() {
+  const [expandido, setExpandido] = useState(false)
+
   return (
     <div className="grid-2">
       <div className="panel">
         <div className="panel-header">
           <h2>Registrar visitante</h2>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small panel-toggle"
+            onClick={() => setExpandido((v) => !v)}
+            aria-expanded={expandido}
+          >
+            {expandido ? '▾ Recolher' : '▸ Expandir'}
+          </button>
         </div>
-        <div className="panel-body">
-          <VisitanteForm />
-        </div>
+        {expandido && (
+          <div className="panel-body">
+            <VisitanteForm />
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -508,15 +520,27 @@ export function PortariaVisitantes() {
 }
 
 export function PortariaEncomendas() {
+  const [expandido, setExpandido] = useState(false)
+
   return (
     <div className="grid-2">
       <div className="panel">
         <div className="panel-header">
           <h2>Registrar encomenda</h2>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small panel-toggle"
+            onClick={() => setExpandido((v) => !v)}
+            aria-expanded={expandido}
+          >
+            {expandido ? '▾ Recolher' : '▸ Expandir'}
+          </button>
         </div>
-        <div className="panel-body">
-          <EncomendaForm />
-        </div>
+        {expandido && (
+          <div className="panel-body">
+            <EncomendaForm />
+          </div>
+        )}
       </div>
 
       <div className="panel">
