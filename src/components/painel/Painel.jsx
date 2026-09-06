@@ -82,7 +82,7 @@ function NoCondominioList({ periodoMes }) {
 }
 
 function EncomendasAguardandoList({ periodoMes }) {
-  const { encomendas, moradores } = useApp()
+  const { encomendas, moradores, registrarAvisoEncomenda } = useApp()
   const [encomendaDetalhada, setEncomendaDetalhada] = useState(null)
   const pendentes = encomendas
     .filter((e) => !e.retiradaEm && noMes(e.chegadaEm, periodoMes))
@@ -105,10 +105,11 @@ function EncomendasAguardandoList({ periodoMes }) {
                 <span>{e.unidade}</span>
                 {e.transportadora && <span>· {e.transportadora}</span>}
                 <span>· chegou {formatDateTime(e.chegadaEm)}</span>
+                {e.avisadoEm && <span className="encomenda-avisado">· 📢 avisado {formatDateTime(e.avisadoEm)}</span>}
               </div>
             </div>
             <div className="log-actions">
-              <AvisoEncomendaWhatsApp encomenda={e} />
+              <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />
               <button className="btn btn-ghost btn-small" type="button" onClick={() => setEncomendaDetalhada(e)}>
                 Abrir
               </button>
@@ -137,6 +138,7 @@ function EncomendasAguardandoList({ periodoMes }) {
                 <div><span>Unidade</span><strong>{encomendaDetalhada.unidade}</strong></div>
                 <div><span>Transportadora / origem</span><strong>{encomendaDetalhada.transportadora || 'Não informado'}</strong></div>
                 <div><span>Chegada</span><strong>{formatDateTime(encomendaDetalhada.chegadaEm)}</strong></div>
+                <div><span>Avisado em</span><strong>{encomendaDetalhada.avisadoEm ? formatDateTime(encomendaDetalhada.avisadoEm) : 'Não avisado'}</strong></div>
                 <div><span>Status</span><strong>Aguardando retirada</strong></div>
               </div>
               {encomendaDetalhada.foto && (

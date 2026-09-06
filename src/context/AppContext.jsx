@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
-import { load, uid, nowISO } from '../utils/storage.js'
+import { load, save, uid, nowISO } from '../utils/storage.js'
 
 const AppContext = createContext(null)
 
