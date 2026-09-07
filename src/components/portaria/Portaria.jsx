@@ -365,14 +365,41 @@ function EncomendaForm() {
 function EncomendasList() {
   const { encomendas, confirmarRetirada, removerEncomenda, moradores, registrarAvisoEncomenda } = useApp()
   const [retiradaModal, setRetiradaModal] = useState(null)
+  const [busca, setBusca] = useState('')
 
   if (encomendas.length === 0) {
     return <div className="empty-state">Nenhuma encomenda registrada.</div>
   }
 
+  const termo = busca.trim().toLowerCase()
+  const filtradas = termo
+    ? encomendas.filter((e) => {
+        const morador = moradorDaUnidade(moradores, e.unidade)
+        const nomeMorador = (morador?.nome || '').toLowerCase()
+        return (
+          (e.destinatario || '').toLowerCase().includes(termo) ||
+          nomeMorador.includes(termo) ||
+          (e.unidade || '').toLowerCase().includes(termo) ||
+          (e.transportadora || '').toLowerCase().includes(termo)
+        )
+      })
+    : encomendas
+
   return (
     <div>
-      {encomendas.map((e) => {
+      <div className="field filtro-encomendas">
+        <input
+          type="text"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por destinatário, morador, unidade ou transportadora..."
+          className="input-busca"
+        />
+      </div>
+      {filtradas.length === 0 ? (
+        <div className="empty-state">Nenhuma encomenda encontrada para &quot;{busca}&quot;.</div>
+      ) : (
+        filtradas.map((e) => {
         const morador = moradorDaUnidade(moradores, e.unidade)
         const titulo = e.destinatario || (morador && morador.nome) || e.unidade
         return (
@@ -433,7 +460,7 @@ function EncomendasList() {
             </div>
           </div>
         )
-      })}
+      }))}
 
       {retiradaModal && (
         <AssinaturaRetiradaModal

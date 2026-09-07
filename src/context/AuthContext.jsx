@@ -72,7 +72,7 @@ export function AuthProvider({ children }) {
             setUserProfile(perfil)
             // Buscar dados do condomínio (logo, nome, código)
             if (perfil.condominioId) {
-              const condoDoc = await getDoc(doc(db, 'condominios', perfil.condominioId))
+              const condoDoc = await getDoc(doc(db, 'tenants', perfil.condominioId))
               if (condoDoc.exists()) {
                 setCondominio({ id: condoDoc.id, ...condoDoc.data() })
               }
@@ -127,7 +127,7 @@ export function AuthProvider({ children }) {
       criadoEm: serverTimestamp(),
       codigo
     }
-    await setDoc(doc(db, 'condominios', firebaseUser.uid), dadosCondominio)
+    await setDoc(doc(db, 'tenants', firebaseUser.uid), dadosCondominio)
     await setDoc(doc(db, 'users', firebaseUser.uid), {
       uid: firebaseUser.uid,
       email,
@@ -187,15 +187,8 @@ export function AuthProvider({ children }) {
         return firebaseUser
       }
       // 3. Localiza o condomínio pelo código de acesso (ex.: DP8D3Y)
-      // orderBy + limit garante resultado determinístico mesmo que haja códigos
-      // duplicados legados no banco (o mais recente prevalece).
-      const q = query(
-        collection(db, 'condominios'),
-        where('codigo', '==', codigoCondominio),
-        orderBy('criadoEm', 'desc'),
-        limit(1)
-      )
-      const snapshot = await getDocs(q)
+      // Consulta simples por código — sem orderBy, não exige índice composto
+      const snapshot = await getDocs(query(collection(db, 'tenants'), where('codigo', '==', codigoCondominio)))
       if (snapshot.empty) {
         throw new Error('Código do condomínio não encontrado. Confira o código exibido nas Configurações do síndico e tente novamente.')
       }
@@ -210,6 +203,7 @@ export function AuthProvider({ children }) {
         email,
         nome: dados.nome,
         whatsapp: dados.whatsapp || '',
+        unidade: dados.unidade || '',
         role,
         condominioId,
         status: 'ativo',
@@ -219,6 +213,8 @@ export function AuthProvider({ children }) {
         uid: firebaseUser.uid,
         email,
         nome: dados.nome,
+        whatsapp: dados.whatsapp || '',
+        unidade: dados.unidade || '',
         role,
         condominioId
       })
@@ -239,13 +235,8 @@ export function AuthProvider({ children }) {
   async function completarCadastroMorador(dados) {
     if (!user) throw new Error('Nenhuma sessão ativa. Entre com seu e-mail e senha.')
     const codigoCondominio = String(dados?.codigo || '').trim().toUpperCase()
-    const q = query(
-      collection(db, 'condominios'),
-      where('codigo', '==', codigoCondominio),
-      orderBy('criadoEm', 'desc'),
-      limit(1)
-    )
-    const snapshot = await getDocs(q)
+    // Consulta simples por código — sem orderBy, não exige índice composto
+    const snapshot = await getDocs(query(collection(db, 'tenants'), where('codigo', '==', codigoCondominio)))
     if (snapshot.empty) {
       throw new Error('Código do condomínio não encontrado. Confira o código exibido nas Configurações do síndico e tente novamente.')
     }
@@ -257,13 +248,14 @@ export function AuthProvider({ children }) {
       email,
       nome,
       whatsapp: dados?.whatsapp || '',
+      unidade: dados?.unidade || '',
       role: 'morador',
       condominioId,
       status: 'ativo',
       criadoEm: serverTimestamp()
     })
-    setUserProfile({ uid: user.uid, email, nome, role: 'morador', condominioId, status: 'ativo' })
-    const condoDoc = await getDoc(doc(db, 'condominios', condominioId))
+    setUserProfile({ uid: user.uid, email, nome, whatsapp: dados?.whatsapp || '', unidade: dados?.unidade || '', role: 'morador', condominioId, status: 'ativo' })
+    const condoDoc = await getDoc(doc(db, 'tenants', condominioId))
     if (condoDoc.exists()) {
       setCondominio({ id: condoDoc.id, ...condoDoc.data() })
     }
@@ -310,7 +302,7 @@ export function AuthProvider({ children }) {
       throw new Error('Apenas o usuário master pode criar condomínios.')
     }
 
-    const condoRef = doc(collection(db, 'condominios'))
+    const condoRef = doc(collection(db, 'tenants'))
     const secondaryApp = initializeApp(firebaseConfig, `condominio-${Date.now()}`)
     const secondaryAuth = getSecondaryAuth(secondaryApp)
     let contaCriada = null
@@ -319,7 +311,36 @@ export function AuthProvider({ children }) {
 
     try {
       const email = String(dados.email || '').trim().toLowerCase()
-      const credential = await createSecondaryUser(secondaryAuth, email, dados.senha)
+      const senha = String(dados.senha || '')
+
+      // Validações locais antes de chamar o Firebase
+      if (!email || !email.includes('@')) {
+        throw new Error('E-mail inválido. Informe um e-mail válido.')
+      }
+      if (!senha || senha.length < 6) {
+        throw new Error('A senha deve ter pelo menos 6 caracteres.')
+      }
+
+      let credential
+      try {
+        credential = await createSecondaryUser(secondaryAuth, email, senha)
+      } catch (authErr) {
+        console.error('[CRIAR CONDOMÍNIO] Erro Firebase Auth:', authErr.code, authErr.message)
+        if (authErr.code === 'auth/email-already-in-use') {
+          throw new Error('Este e-mail já está em uso. Use outro e-mail.')
+        }
+        if (authErr.code === 'auth/invalid-email') {
+          throw new Error('Formato de e-mail inválido.')
+        }
+        if (authErr.code === 'auth/weak-password') {
+          throw new Error('Senha muito fraca. Use pelo menos 6 caracteres.')
+        }
+        if (authErr.code === 'auth/operation-not-allowed') {
+          throw new Error('A autenticação por e-mail/senha não está habilitada no Firebase. Acesse o Console do Firebase → Authentication → Sign-in method e habilite "E-mail/senha".')
+        }
+        throw new Error(`Erro ao criar conta: ${authErr.message || 'Verifique as configurações do Firebase.'}`)
+      }
+
       contaCriada = credential.user
       await updateProfile(contaCriada, { displayName: dados.nome })
       await setDoc(condoRef, {
@@ -353,7 +374,7 @@ export function AuthProvider({ children }) {
 
   async function atualizarCondominioMaster(id, dados) {
     if (!ehMaster(auth.currentUser?.email)) throw new Error('Apenas o usuário master pode editar condomínios.')
-    await setDoc(doc(db, 'condominios', id), {
+    await setDoc(doc(db, 'tenants', id), {
       nome: dados.nome.trim(),
       endereco: dados.endereco?.trim() || '',
       logo: dados.logo || ''
@@ -380,12 +401,12 @@ export function AuthProvider({ children }) {
     const colecoes = ['visitantes', 'encomendas', 'comunicados', 'moradores', 'despesas', 'orcamentos']
     const batch = writeBatch(db)
     for (const nome of colecoes) {
-      const snapshot = await getDocs(collection(db, 'condominios', id, nome))
+      const snapshot = await getDocs(collection(db, 'tenants', id, nome))
       snapshot.docs.forEach((item) => batch.delete(item.ref))
     }
     const usuarios = await getDocs(query(collection(db, 'users'), where('condominioId', '==', id)))
     usuarios.docs.forEach((item) => batch.delete(item.ref))
-    batch.delete(doc(db, 'condominios', id))
+    batch.delete(doc(db, 'tenants', id))
     await batch.commit()
   }
 
@@ -399,7 +420,7 @@ export function AuthProvider({ children }) {
         ? dados.logo
         : (dados.logo || '')
     }
-    await setDoc(doc(db, 'condominios', id), dadosParaSalvar, { merge: true })
+    await setDoc(doc(db, 'tenants', id), dadosParaSalvar, { merge: true })
     setCondominio((atual) => ({ ...(atual || {}), ...dadosParaSalvar }))
     return true
   }
@@ -444,7 +465,7 @@ export function AuthProvider({ children }) {
       for (let i = 0; i < 6; i++) {
         codigo += chars.charAt(Math.floor(Math.random() * chars.length))
       }
-      const q = query(collection(db, 'condominios'), where('codigo', '==', codigo))
+      const q = query(collection(db, 'tenants'), where('codigo', '==', codigo))
       const existente = await getDocs(q)
       if (existente.empty) return codigo
     }

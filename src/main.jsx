@@ -10,17 +10,24 @@ import { iniciarTema } from './utils/tema.js'
 // Aplica o tema de cores salvo neste dispositivo antes da primeira renderização.
 iniciarTema()
 
-// Em desenvolvimento, não registramos service worker (evita erros do PWA em dev).
-// Se um SW antigo de builds anteriores ainda estiver ativo, desregistra e limpa caches.
-if (import.meta.env.DEV && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
+// Registro do Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    if (import.meta.env.DEV) {
+      // Em desenvolvimento, desregistra SWs antigos
+      const regs = await navigator.serviceWorker.getRegistrations()
       regs.forEach((reg) => reg.unregister())
-    })
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-      .catch(() => {})
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => caches.delete(k)))
+    } else {
+      // Em produção, registra o SW do PWA (gerado pelo vite-plugin-pwa)
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        console.log('[SW] Service Worker registrado:', registration.scope)
+      } catch (err) {
+        console.warn('[SW] Falha ao registrar Service Worker:', err)
+      }
+    }
   })
 }
 

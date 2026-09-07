@@ -20,6 +20,7 @@ export default function Login() {
   const [membroEmail, setMembroEmail] = useState('')
   const [membroSenha, setMembroSenha] = useState('')
   const [membroCodigo, setMembroCodigo] = useState('')
+  const [membroUnidade, setMembroUnidade] = useState('')
   const [membroWhatsapp, setMembroWhatsapp] = useState('')
   const [adminWhatsapp, setAdminWhatsapp] = useState('')
   const [recuperarEmail, setRecuperarEmail] = useState('')
@@ -76,6 +77,7 @@ export default function Login() {
         nome: membroNome,
         role: 'morador',
         condominioCodigo: membroCodigo.trim().toUpperCase(),
+        unidade: membroUnidade.trim(),
         whatsapp: whatsappMembro
       })
     } catch (err) { tratarErro(err) }
@@ -227,6 +229,10 @@ export default function Login() {
               <label htmlFor="membro-codigo">Código do condomínio</label>
               <input id="membro-codigo" value={membroCodigo} onChange={(e) => setMembroCodigo(e.target.value)} placeholder="Ex.: ABC123" style={{ textTransform: 'uppercase' }} required />
               <p className="login-hint">Peça o código ao síndico do seu condomínio.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="membro-unidade">Unidade</label>
+              <input id="membro-unidade" value={membroUnidade} onChange={(e) => setMembroUnidade(e.target.value)} placeholder="Ex.: Bloco A, apto 101" required />
             </div>
             <div className="field">
               <label htmlFor="membro-whatsapp">WhatsApp (para notificações)</label>

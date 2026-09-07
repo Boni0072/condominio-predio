@@ -61,14 +61,20 @@ npm run dev       # ambiente de desenvolvimento, http://localhost:5173
 ### Estrutura do banco de dados (Firestore)
 
 ```
-condominios/{condominioId}          → dados do condomínio (nome, código, endereço)
-condominios/{condominioId}/users/{uid}  → perfis (role, nome, email)
-condominios/{condominioId}/moradores/{id}
-condominios/{condominioId}/visitantes/{id}
-condominios/{condominioId}/encomendas/{id}
-condominios/{condominioId}/comunicados/{id}
-users/{uid}                         → perfil global do usuário + condominioId
+tenants/{tenantId}                    → dados do condomínio (nome, código, endereço)
+tenants/{tenantId}/moradores/{id}
+tenants/{tenantId}/visitantes/{id}
+tenants/{tenantId}/encomendas/{id}
+tenants/{tenantId}/comunicados/{id}
+tenants/{tenantId}/despesas/{id}
+tenants/{tenantId}/orcamentos/{id}
+tenants/{tenantId}/assembleias/{id}
+tenants/{tenantId}/votacoes/{id}
+tenants/{tenantId}/votos/{id}
+users/{uid}                           → perfil global do usuário + condominioId
 ```
+
+Cada condominio é um `tenant`. Os dados de cada condominio estão isolados sob seu próprio `tenantId`.
 
 ## Gerando a versão de produção (PWA instalável)
 

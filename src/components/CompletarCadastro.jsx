@@ -9,6 +9,7 @@ export default function CompletarCadastro() {
   const { user, userProfile, completarCadastroMorador, logout } = useAuth()
   const [codigo, setCodigo] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
+  const [unidade, setUnidade] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
 
@@ -22,7 +23,7 @@ export default function CompletarCadastro() {
     }
     setCarregando(true)
     try {
-      await completarCadastroMorador({ codigo, whatsapp: whatsappLimpo })
+      await completarCadastroMorador({ codigo, whatsapp: whatsappLimpo, unidade: unidade.trim() })
       // Ao concluir, o perfil é atualizado no contexto e o App entra automaticamente.
     } catch (err) {
       setErro(err?.message || 'Não foi possível concluir o cadastro. Tente novamente.')
@@ -54,6 +55,16 @@ export default function CompletarCadastro() {
             <p className="login-hint">
               Peça o código ao síndico do seu condomínio (ele aparece nas Configurações, em "Código de acesso do condomínio").
             </p>
+          </div>
+          <div className="field">
+            <label htmlFor="unidade-completar">Unidade</label>
+            <input
+              id="unidade-completar"
+              value={unidade}
+              onChange={(e) => setUnidade(e.target.value)}
+              placeholder="Ex.: Bloco A, apto 101"
+              required
+            />
           </div>
           <div className="field">
             <label htmlFor="whatsapp-completar">WhatsApp (para notificações)</label>

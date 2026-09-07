@@ -58,8 +58,11 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        navigateFallback: 'index.html'
       },
+      // Desabilita registro automático para usar SW customizado
+      injectRegister: false,
       devOptions: {
         enabled: false
       }

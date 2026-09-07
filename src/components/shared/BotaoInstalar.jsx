@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { solicitarPermissao } from '../../utils/notificacao.js'
 
 // iOS/iPadOS Safari não dispara o evento beforeinstallprompt;
 // nesses aparelhos mostramos as instruções de "Adicionar à Tela de Início".
@@ -50,7 +51,11 @@ export default function BotaoInstalar() {
       evento.prompt()
       try {
         const { outcome } = await evento.userChoice
-        if (outcome === 'accepted') setInstalado(true)
+        if (outcome === 'accepted') {
+          setInstalado(true)
+          // Solicita permissão de notificação após instalar
+          solicitarPermissao()
+        }
       } catch {
         // usuário fechou o diálogo sem decidir — mantém o botão
       }

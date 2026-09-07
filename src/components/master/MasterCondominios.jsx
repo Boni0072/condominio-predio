@@ -27,7 +27,7 @@ export default function MasterCondominios() {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      collection(db, 'condominios'),
+      collection(db, 'tenants'),
       (snapshot) => setCondominios(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
       (err) => setErro(err.message || 'Não foi possível carregar os condomínios.')
     )
