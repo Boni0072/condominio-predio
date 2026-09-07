@@ -94,13 +94,22 @@ export function AppProvider({ children }) {
     }
   }, [firestoreAtivo, userProfile?.uid])
 
-  // Quando permissão é concedida, salva o token
+  // Quando permissão é concedida, salva o token automaticamente (sem precisar
+  // clicar em nenhum botão). Antes qualquer erro aqui era engolido em silêncio
+  // (.catch(() => {})), por isso parecia que "só funcionava clicando" — na
+  // verdade a chamada automática estava falhando sem deixar rastro nenhum.
   useEffect(() => {
     if (!firestoreAtivo || !userProfile?.uid) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      console.log('[PUSH] Tentando salvar token automaticamente ao abrir o app...')
       salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
         dispositivo: navigator.platform || 'desconhecido'
-      }).catch(() => {})
+      }).then((token) => {
+        if (token) console.log('[PUSH] Token automático salvo com sucesso.')
+        else console.warn('[PUSH] Salvamento automático retornou null — veja os avisos [PUSH] acima para o motivo.')
+      }).catch((err) => {
+        console.error('[PUSH] Falha ao salvar token automaticamente:', err)
+      })
       ativarListenerFrente()
     }
   }, [firestoreAtivo, userProfile?.uid, userProfile?.condominioId])
