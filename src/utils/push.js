@@ -4,14 +4,10 @@
 
 import { getToken, onMessage } from 'firebase/messaging'
 import { getFunctions, httpsCallable } from 'firebase/functions'
-import { messaging, FCM_VAPID_KEY, FCM_SERVER_KEY, app } from '../firebase/config.js'
+import { messaging, FCM_VAPID_KEY, app } from '../firebase/config.js'
 import { solicitarPermissao } from './notificacao.js'
 
-// v2: se o token mudou de "registration" (scope novo), não reutilizamos cache antigo
 const PREFIX_TOKEN = 'condo_fcm_token_v2_'
-// Escopo DEDICADO para o SW do FCM: não conflita com o SW do PWA (/),
-// que ao atualizar invalidaria o registro de push.
-const SCOPE_FCM = '/fcm-push/'
 let funcoes = null
 
 function obterFuncoes() {
@@ -23,11 +19,12 @@ export function pushConfigurado() {
   return Boolean(FCM_VAPID_KEY && FCM_VAPID_KEY !== 'SUA_VAPID_KEY_AQUI')
 }
 
-// Registra o service worker do FCM (uma vez), em escopo dedicado
+// Registra o service worker do FCM na raiz (escopo padrão)
 export async function registrarServiceWorkerFCM() {
   if (!('serviceWorker' in navigator)) return null
   try {
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: SCOPE_FCM })
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
+    console.log('[PUSH] SW FCM registrado:', reg.scope)
     return reg
   } catch (err) {
     console.warn('[PUSH] Falha ao registrar SW do FCM:', err)
@@ -36,28 +33,21 @@ export async function registrarServiceWorkerFCM() {
 }
 
 // Gera (ou reutiliza) o token FCM deste dispositivo.
-// SEMPRE garante a permissão antes — o SDK v9 não pede permissão sozinho.
 export async function obterTokenFCM() {
   if (!pushConfigurado() || !('serviceWorker' in navigator)) return null
   try {
-    // 1) Permissão: sem 'granted' não existe push
     const permissao = await solicitarPermissao()
     if (permissao !== 'granted') {
       console.warn('[PUSH] Permissão de notificação não concedida:', permissao)
       return null
     }
-
-    // 2) Service worker em escopo dedicado
     const registration = await registrarServiceWorkerFCM()
     if (!registration) {
       console.warn('[PUSH] SW do FCM indisponível (precisa de HTTPS ou localhost)')
       return null
     }
-
-    // 3) Token em cache (só com permissão válida)
     const atual = localStorage.getItem(PREFIX_TOKEN)
     if (atual) return atual
-
     const token = await getToken(messaging, {
       vapidKey: FCM_VAPID_KEY,
       serviceWorkerRegistration: registration
@@ -67,9 +57,10 @@ export async function obterTokenFCM() {
       localStorage.setItem(PREFIX_TOKEN, token)
       return token
     }
+    console.warn('[PUSH] getToken retornou null — verifique VAPID key')
     return null
   } catch (err) {
-    console.warn('[PUSH] Erro ao obter token FCM:', err)
+    console.warn('[PUSH] Erro ao obter token FCM:', err.code, err.message)
     localStorage.removeItem(PREFIX_TOKEN)
     return null
   }
@@ -80,11 +71,13 @@ export function limparTokenFCM() {
   localStorage.removeItem(PREFIX_TOKEN)
 }
 
-// Salva o token do usuário no Firestore (dentro do tenant), para a portaria
-// conseguir notificar o morador.
+// Salva o token do usuário no Firestore (dentro do tenant)
 export async function salvarTokenUsuario(tenantId, userUid, info = {}) {
   const token = await obterTokenFCM()
-  if (!token || !tenantId || !userUid) return null
+  if (!token || !tenantId || !userUid) {
+    console.warn('[PUSH] Sem token ou dados — documento NÃO salvo')
+    return null
+  }
   try {
     const { doc, setDoc } = await import('firebase/firestore')
     const { db } = await import('../firebase/config.js')
@@ -94,6 +87,7 @@ export async function salvarTokenUsuario(tenantId, userUid, info = {}) {
       dispositivo: info.dispositivo || 'desconhecido',
       atualizadoEm: new Date().toISOString()
     }, { merge: true })
+    console.log('[PUSH] Token salvo no Firestore para', userUid)
     return token
   } catch (err) {
     console.warn('[PUSH] Erro ao salvar token no Firestore:', err)
@@ -101,71 +95,17 @@ export async function salvarTokenUsuario(tenantId, userUid, info = {}) {
   }
 }
 
-// Envia push para todos os dispositivos de um tenant.
-// Caminho principal: Cloud Function (FCM v1 via Admin SDK) — não precisa de
-// "Server key". Fallback: API legada do FCM (só funciona com chave AAAA...).
+// Envia push para todos os dispositivos do tenant (via Cloud Function)
 export async function enviarPushTenant(tenantId, titulo, corpo, url = '/') {
-  if (!pushConfigurado() || !tenantId) return false
-
-  // 1) Cloud Function — método moderno e seguro (valida tenant no servidor)
   try {
-    const enviar = httpsCallable(obterFuncoes(), 'enviarNotificacao')
-    const resultado = await enviar({ titulo, corpo, url, tenantId })
-    const dados = resultado?.data || {}
+    const func = httpsCallable(obterFuncoes(), 'enviarNotificacao')
+    const dados = await func({ titulo, corpo, url, tenantId })
     console.log('[PUSH] Cloud Function respondeu:', dados)
-    if (dados.enviados > 0) return true
-    // Sem tokens registrados ainda — nada a enviar
-    if (dados.enviados === 0 && (dados.totalTokens === 0 || dados.falhas === 0)) return false
+    return dados?.enviados > 0
   } catch (err) {
-    console.warn('[PUSH] Cloud Function falhou, tentando API legada:', err?.message || err)
+    console.warn('[PUSH] Cloud Function falhou:', err?.message || err)
   }
-
-  // 2) Fallback: API legada (apenas se existir uma Server key válida)
-  if (String(FCM_SERVER_KEY || '').startsWith('AAAA')) {
-    try {
-      const { collection, getDocs } = await import('firebase/firestore')
-      const { db } = await import('../firebase/config.js')
-
-      const snapshot = await getDocs(collection(db, 'tenants', tenantId, 'pushTokens'))
-      const tokens = snapshot.docs.map((d) => d.data().token).filter(Boolean)
-      if (tokens.length === 0) return false
-
-      const respostas = await Promise.all(tokens.map((token) => enviarPushParaToken(token, titulo, corpo, url)))
-      return respostas.some(Boolean)
-    } catch (err) {
-      console.warn('[PUSH] Erro ao enviar push do tenant:', err)
-      return false
-    }
-  }
-
   return false
-}
-
-// Envia o push diretamente para um token via API legada do FCM
-export async function enviarPushParaToken(token, titulo, corpo, url = '/') {
-  if (!pushConfigurado() || !token) return false
-  try {
-    const resposta = await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `key=${FCM_SERVER_KEY}`
-      },
-      body: JSON.stringify({
-        to: token,
-        notification: { title: titulo, body: corpo, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' },
-        data: { url, titulo, corpo }
-      })
-    })
-    if (!resposta.ok) {
-      console.warn('[PUSH] FCM respondeu', resposta.status, await resposta.text())
-      return false
-    }
-    return true
-  } catch (err) {
-    console.warn('[PUSH] Erro no envio FCM:', err)
-    return false
-  }
 }
 
 // Notificação de nova encomenda para o tenant

@@ -4,9 +4,35 @@ import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where
 import { db } from '../firebase/config.js'
 import { load, save, uid, nowISO } from '../utils/storage.js'
 import { notificarNovaEncomenda, notificarNovoVisitante, solicitarPermissao } from '../utils/notificacao.js'
-import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, enviarPushParaToken, ativarListenerFrente } from '../utils/push.js'
+import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, ativarListenerFrente } from '../utils/push.js'
 
 const AppContext = createContext(null)
+
+// Componente modal de permissão de notificação
+function ModalPermissaoNotificacao({ onAceitar, onFechar }) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'default') return null
+
+  return (
+    <div className="permissoes-overlay">
+      <div className="permissoes-modal">
+        <div className="permissoes-icone">🔔</div>
+        <h3>Ativar notificações?</h3>
+        <p>
+          Para receber avisos de <strong>encomendas</strong> e <strong>visitantes</strong> em
+          tempo real, precisamos da sua permissão.
+        </p>
+        <div className="permissoes-botoes">
+          <button type="button" className="btn btn-ghost" onClick={onFechar}>
+            Agora não
+          </button>
+          <button type="button" className="btn btn-brass" onClick={onAceitar}>
+            Ativar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const SEED_COMUNICADOS = [
   {
@@ -54,6 +80,52 @@ export function AppProvider({ children }) {
   const { userProfile, firebaseOK } = useAuth()
   const condominioId = userProfile?.condominioId || 'local'
   const firestoreAtivo = Boolean(firebaseOK && userProfile?.condominioId)
+  const [mostrarModalNotificacao, setMostrarModalNotificacao] = useState(false)
+
+  // Mostra modal de permissão após login (se permissão ainda não foi decidida)
+  useEffect(() => {
+    if (!firestoreAtivo || !userProfile?.uid) return
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission === 'default') {
+      const jaViu = localStorage.getItem('condo_modal_notif_visto')
+      if (!jaViu) {
+        setTimeout(() => setMostrarModalNotificacao(true), 800)
+      }
+    }
+  }, [firestoreAtivo, userProfile?.uid])
+
+  // Quando permissão é concedida, salva o token
+  useEffect(() => {
+    if (!firestoreAtivo || !userProfile?.uid) return
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
+        dispositivo: navigator.platform || 'desconhecido'
+      }).catch(() => {})
+      ativarListenerFrente()
+    }
+  }, [firestoreAtivo, userProfile?.uid, userProfile?.condominioId])
+
+  async function aceitarNotificacoes() {
+    setMostrarModalNotificacao(false)
+    localStorage.setItem('condo_modal_notif_visto', '1')
+    try {
+      const permissao = await solicitarPermissao()
+      if (permissao === 'granted' && userProfile?.condominioId && userProfile?.uid) {
+        await salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
+          dispositivo: navigator.platform || 'desconhecido'
+        })
+      }
+    } catch {
+      // silencioso
+    }
+  }
+
+  function fecharModalNotificacao() {
+    setMostrarModalNotificacao(false)
+    localStorage.setItem('condo_modal_notif_visto', '1')
+  }
+
+
 
   const [visitantes, setVisitantes] = useState(() => load(`${condominioId}_visitantes`, []))
   const [encomendas, setEncomendas] = useState(() => load(`${condominioId}_encomendas`, []))
@@ -66,16 +138,14 @@ export function AppProvider({ children }) {
   const [votacoes, setVotacoes] = useState([])
   const [votos, setVotos] = useState([])
 
-  // Registra este dispositivo para receber push do seu condomínio
+  // Registra o token FCM apenas quando o usuário solicitar explicitamente
+  // (no celular, Notification.requestPermission() exige toque do usuário)
   useEffect(() => {
-    if (firestoreAtivo && userProfile?.uid) {
-      salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
-        dispositivo: navigator.platform || 'desconhecido'
-      }).catch(() => {})
-      // Recebe notificações também com o app aberto
+    if (firestoreAtivo) {
+      // Apenas ativa o listener de notificações em primeiro plano
       ativarListenerFrente()
     }
-  }, [firestoreAtivo, userProfile?.uid, userProfile?.condominioId])
+  }, [firestoreAtivo])
 
   useEffect(() => {
     if (!firestoreAtivo) return undefined
@@ -429,7 +499,17 @@ export function AppProvider({ children }) {
     , assembleias, votacoes, votos, criarAssembleia, criarVotacao, encerrarAssembleia, encerrarVotacao, votar
   }
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
+  return (
+    <AppContext.Provider value={value}>
+      {mostrarModalNotificacao && (
+        <ModalPermissaoNotificacao
+          onAceitar={aceitarNotificacoes}
+          onFechar={fecharModalNotificacao}
+        />
+      )}
+      {children}
+    </AppContext.Provider>
+  )
 }
 
 export function useApp() {

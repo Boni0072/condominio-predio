@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 import { TEMAS, temaSalvo, aplicarTema, coresPersonalizadas, aplicarCoresPersonalizadas } from '../../utils/tema.js'
-import { salvarTokenUsuario } from '../../utils/push.js'
+import { salvarTokenUsuario, pushConfigurado } from '../../utils/push.js'
 
 export default function Configuracoes() {
   const { userProfile, condominio, atualizarCondominio } = useAuth()
@@ -20,7 +20,10 @@ export default function Configuracoes() {
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
   )
   const [ativandoNotif, setAtivandoNotif] = useState(false)
+  const [diagnostico, setDiagnostico] = useState([])
   const inputRef = useRef(null)
+
+  const adicionarDiag = (msg) => setDiagnostico((prev) => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`])
 
   useEffect(() => {
     if (!condominio) return
@@ -60,28 +63,74 @@ export default function Configuracoes() {
     setTemaAtual('personalizado')
   }
 
-  // Ativa o push neste dispositivo: pede permissão (precisa do toque do usuário
-  // no iPhone) e registra o token FCM no condomínio.
-  async function ativarNotificacoes() {
-    setAtivandoNotif(true)
-    setErro('')
-    setSucesso('')
+  // Diagnóstico completo — mostra exatamente o que está acontecendo
+  async function executarDiagnostico() {
+    setDiagnostico([])
+    adicionarDiag('Iniciando diagnóstico...')
+
+    // 1. VAPID key
+    if (!pushConfigurado()) {
+      adicionarDiag('❌ VAPID key não configurada')
+      return
+    }
+    adicionarDiag('✅ VAPID key configurada')
+
+    // 2. Suporte
+    if (!('serviceWorker' in navigator)) {
+      adicionarDiag('❌ Service Worker não suportado')
+      return
+    }
+    adicionarDiag('✅ Service Worker suportado')
+
+    if (typeof Notification === 'undefined') {
+      adicionarDiag('❌ Notification API não suportado')
+      return
+    }
+    adicionarDiag('✅ Notification API suportado')
+
+    // 3. Permissão
+    adicionarDiag(`Permissão atual: ${Notification.permission}`)
+    if (Notification.permission === 'denied') {
+      adicionarDiag('❌ Notificações BLOQUEADAS — libere nas configurações do navegador')
+      return
+    }
+
+    // 4. Service Worker
+    const regs = await navigator.serviceWorker.getRegistrations()
+    adicionarDiag(`SWs registrados: ${regs.length}`)
+    regs.forEach((r) => adicionarDiag(`  - ${r.scope}`))
+
+    // 5. Tenta obter token
     try {
-      const token = await salvarTokenUsuario(userProfile?.condominioId, userProfile?.uid, {
+      const { obterTokenFCM, registrarServiceWorkerFCM } = await import('../../utils/push.js')
+      const reg = await registrarServiceWorkerFCM()
+      if (!reg) {
+        adicionarDiag('❌ Falha ao registrar SW do FCM')
+        return
+      }
+      adicionarDiag('✅ SW FCM registrado')
+
+      const token = await obterTokenFCM()
+      if (!token) {
+        adicionarDiag('❌ getToken retornou null')
+        return
+      }
+      adicionarDiag(`✅ Token obtido: ${token.substring(0, 20)}...`)
+
+      // 6. Salvar
+      const salvo = await salvarTokenUsuario(userProfile?.condominioId, userProfile?.uid, {
         dispositivo: navigator.platform || 'desconhecido'
       })
-      setPermissaoNotif(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported')
-      if (token) {
-        setSucesso('Notificações ativadas neste dispositivo! Você receberá avisos de encomendas e visitantes.')
-      } else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
-        setErro('As notificações estão bloqueadas. Libere nas configurações do navegador/celular (ícone do cadeado no site ou Ajustes → Notificações).')
+      if (salvo) {
+        adicionarDiag('✅ TOKEN SALVO NO FIRESTORE!')
+        setSucesso('Token salvo! Notificações ativadas.')
+        setPermissaoNotif('granted')
       } else {
-        setErro('Não foi possível ativar. Abra o app pelo endereço https:// (ou localhost) e tente de novo.')
+        adicionarDiag('❌ salvarTokenUsuario retornou null')
       }
     } catch (err) {
-      setErro('Erro ao ativar notificações: ' + (err?.message || err))
+      adicionarDiag(`❌ Erro: ${err.message}`)
     }
-    setAtivandoNotif(false)
   }
 
   async function handleSubmit(e) {
@@ -207,26 +256,43 @@ export default function Configuracoes() {
           Receba avisos de encomendas e visitantes mesmo com o app fechado. Ative em cada dispositivo que deve receber os avisos.
         </p>
         {permissaoNotif === 'granted' ? (
-          <p style={{ margin: '0 0 12px', color: 'var(--ok, #2e7d32)', fontSize: 13 }}>
-            ✓ Notificações permitidas neste dispositivo. Toque em reativar se não estiver recebendo os avisos.
-          </p>
+          <div className="notif-status notif-ok">
+            <span className="notif-icone">✓</span>
+            <span>Notificações ativadas neste dispositivo. Você receberá avisos de encomendas e visitantes.</span>
+          </div>
         ) : permissaoNotif === 'denied' ? (
-          <p style={{ margin: '0 0 12px', color: 'var(--danger, #c0392b)', fontSize: 13 }}>
-            ✗ Notificações bloqueadas para este site. Libere nas configurações do navegador/celular para receber os avisos.
-          </p>
-        ) : null}
+          <div className="notif-status notif-bloqueado">
+            <span className="notif-icone">✗</span>
+            <span>Notificações bloqueadas. Libere nas configurações do navegador/celular para receber os avisos.</span>
+          </div>
+        ) : (
+          <div className="notif-status notif-pendente">
+            <span className="notif-icone">⟳</span>
+            <span>Notificações não ativadas. Toque no botão abaixo para ativar.</span>
+          </div>
+        )}
         <button
           type="button"
-          className="btn btn-brass"
-          onClick={ativarNotificacoes}
+          className="btn btn-brass btn-block"
+          onClick={executarDiagnostico}
           disabled={ativandoNotif || !userProfile?.condominioId}
         >
-          {ativandoNotif ? 'Ativando...' : 'Ativar notificações neste dispositivo'}
+          {ativandoNotif ? 'Ativando...' : permissaoNotif === 'granted' ? 'Reativar notificações' : 'Ativar notificações neste dispositivo'}
         </button>
         {!userProfile?.condominioId && (
           <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 12 }}>
             Disponível para contas vinculadas a um condomínio.
           </p>
+        )}
+        {diagnostico.length > 0 && (
+          <div className="diagnostico-lista">
+            <strong>Diagnóstico:</strong>
+            {diagnostico.map((linha, i) => (
+              <div key={i} className={`diagnostico-linha ${linha.includes('❌') ? 'diag-erro' : linha.includes('✅') ? 'diag-ok' : ''}`}>
+                {linha}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
