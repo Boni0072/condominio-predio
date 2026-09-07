@@ -101,7 +101,7 @@ export default function Layout() {
           )}
 
           <div className="sidebar-footer">
-            <BotaoInstalar />
+            <BotaoInstalar userProfile={userProfile} />
             <div className="user-info">
               <div className="user-info-header">
                 <div className="user-avatar">

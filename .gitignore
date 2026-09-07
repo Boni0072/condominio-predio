@@ -2,3 +2,9 @@ node_modules
 dist
 .DS_Store
 dev-server.log
+serviceAccountKey.json
+deploy-log.txt
+deploy-rules.txt
+deploy-hosting.txt
+fix-users.mjs
+*.local
