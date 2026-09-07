@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 import { TEMAS, temaSalvo, aplicarTema, coresPersonalizadas, aplicarCoresPersonalizadas } from '../../utils/tema.js'
+import { salvarTokenUsuario } from '../../utils/push.js'
 
 export default function Configuracoes() {
   const { userProfile, condominio, atualizarCondominio } = useAuth()
@@ -15,6 +16,10 @@ export default function Configuracoes() {
   const [processando, setProcessando] = useState(false)
   const [temaAtual, setTemaAtual] = useState(temaSalvo())
   const [cores, setCores] = useState(coresPersonalizadas())
+  const [permissaoNotif, setPermissaoNotif] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  )
+  const [ativandoNotif, setAtivandoNotif] = useState(false)
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -53,6 +58,30 @@ export default function Configuracoes() {
     setCores(novas)
     aplicarCoresPersonalizadas(novas)
     setTemaAtual('personalizado')
+  }
+
+  // Ativa o push neste dispositivo: pede permissão (precisa do toque do usuário
+  // no iPhone) e registra o token FCM no condomínio.
+  async function ativarNotificacoes() {
+    setAtivandoNotif(true)
+    setErro('')
+    setSucesso('')
+    try {
+      const token = await salvarTokenUsuario(userProfile?.condominioId, userProfile?.uid, {
+        dispositivo: navigator.platform || 'desconhecido'
+      })
+      setPermissaoNotif(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported')
+      if (token) {
+        setSucesso('Notificações ativadas neste dispositivo! Você receberá avisos de encomendas e visitantes.')
+      } else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+        setErro('As notificações estão bloqueadas. Libere nas configurações do navegador/celular (ícone do cadeado no site ou Ajustes → Notificações).')
+      } else {
+        setErro('Não foi possível ativar. Abra o app pelo endereço https:// (ou localhost) e tente de novo.')
+      }
+    } catch (err) {
+      setErro('Erro ao ativar notificações: ' + (err?.message || err))
+    }
+    setAtivandoNotif(false)
   }
 
   async function handleSubmit(e) {
@@ -170,6 +199,35 @@ export default function Configuracoes() {
             </button>
           </form>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h3 style={{ marginBottom: 4 }}>Notificações push</h3>
+        <p className="hint" style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+          Receba avisos de encomendas e visitantes mesmo com o app fechado. Ative em cada dispositivo que deve receber os avisos.
+        </p>
+        {permissaoNotif === 'granted' ? (
+          <p style={{ margin: '0 0 12px', color: 'var(--ok, #2e7d32)', fontSize: 13 }}>
+            ✓ Notificações permitidas neste dispositivo. Toque em reativar se não estiver recebendo os avisos.
+          </p>
+        ) : permissaoNotif === 'denied' ? (
+          <p style={{ margin: '0 0 12px', color: 'var(--danger, #c0392b)', fontSize: 13 }}>
+            ✗ Notificações bloqueadas para este site. Libere nas configurações do navegador/celular para receber os avisos.
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-brass"
+          onClick={ativarNotificacoes}
+          disabled={ativandoNotif || !userProfile?.condominioId}
+        >
+          {ativandoNotif ? 'Ativando...' : 'Ativar notificações neste dispositivo'}
+        </button>
+        {!userProfile?.condominioId && (
+          <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 12 }}>
+            Disponível para contas vinculadas a um condomínio.
+          </p>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: 24 }}>

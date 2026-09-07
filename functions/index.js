@@ -33,7 +33,15 @@ export const enviarNotificacao = onCall({ cors: true }, async (request) => {
   if (!userSnap.exists) {
     throw new HttpsError('not-found', 'Perfil de usuário não encontrado.')
   }
-  const tenantId = userSnap.data().condominioId
+  const email = String(auth.token.email || '').toLowerCase()
+  const eMaster = email === 'ander.fj@hotmail.com' // mesmo master validado nas regras do Firestore
+
+  // O master é global (condominioId null) e pode indicar o tenant do payload.
+  // Usuários comuns SEMPRE usam o condomínio do próprio perfil — o payload é ignorado.
+  let tenantId = userSnap.data().condominioId
+  if (!tenantId && eMaster && request.data?.tenantId) {
+    tenantId = String(request.data.tenantId)
+  }
   if (!tenantId) {
     throw new HttpsError('failed-precondition', 'Usuário sem condomínio vinculado.')
   }

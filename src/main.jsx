@@ -14,9 +14,14 @@ iniciarTema()
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     if (import.meta.env.DEV) {
-      // Em desenvolvimento, desregistra SWs antigos
+      // Em desenvolvimento, desregistra SWs antigos — mas preserva o SW do FCM,
+      // senão o registro de push é invalidado a cada recarga.
       const regs = await navigator.serviceWorker.getRegistrations()
-      regs.forEach((reg) => reg.unregister())
+      for (const reg of regs) {
+        const swUrl = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || ''
+        if (swUrl.includes('firebase-messaging-sw.js')) continue
+        reg.unregister()
+      }
       const keys = await caches.keys()
       await Promise.all(keys.map((k) => caches.delete(k)))
     } else {
