@@ -27,6 +27,12 @@ if ('serviceWorker' in navigator) {
       } catch (err) {
         console.warn('[SW] Falha ao registrar Service Worker:', err)
       }
+      // Registra o SW do Firebase Cloud Messaging (notificações push mesmo com app fechado)
+      try {
+        import('./utils/push.js').then(({ registrarServiceWorkerFCM }) => registrarServiceWorkerFCM())
+      } catch (err) {
+        console.warn('[PUSH] Falha ao carregar registro do FCM:', err)
+      }
     }
   })
 }

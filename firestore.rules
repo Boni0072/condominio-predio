@@ -13,24 +13,24 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function eSindicoDoCondominio(condominioId) {
+    function eSindicoDoCondominio(tenantId) {
       return autenticado()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && perfilAtual().role == 'sindico'
-        && perfilAtual().condominioId == condominioId;
+        && perfilAtual().condominioId == tenantId;
     }
 
-    function pertenceAoCondominio(condominioId) {
+    function pertenceAoCondominio(tenantId) {
       return eMaster()
         || (autenticado()
           && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-          && perfilAtual().condominioId == condominioId);
+          && perfilAtual().condominioId == tenantId);
     }
 
-    function podeEscreverNoCondominio(condominioId) {
+    function podeEscreverNoCondominio(tenantId) {
       return eMaster()
-        || eSindicoDoCondominio(condominioId)
-        || (pertenceAoCondominio(condominioId)
+        || eSindicoDoCondominio(tenantId)
+        || (pertenceAoCondominio(tenantId)
           && (perfilAtual().role == 'zelador' || perfilAtual().role == 'portaria'));
     }
 
@@ -50,25 +50,31 @@ service cloud.firestore {
           || eSindicoDoCondominio(resource.data.condominioId)));
     }
 
-    match /condominios/{condominioId} {
+    match /tenants/{tenantId} {
       // Leitura liberada para qualquer usuário autenticado: é o que permite
-      // localizar o condomínio pelo código de acesso no cadastro do morador.
+      // localizar o tenant pelo código de acesso no cadastro do morador.
       allow read: if autenticado();
       allow create: if eMaster();
-      allow update, delete: if eMaster() || eSindicoDoCondominio(condominioId);
+      allow update, delete: if eMaster() || eSindicoDoCondominio(tenantId);
     }
 
-    match /condominios/{condominioId}/votos/{votoId} {
-      allow read: if pertenceAoCondominio(condominioId);
-      allow create: if pertenceAoCondominio(condominioId)
+    // Tokens de push dos dispositivos — usuário lê/escreve apenas do próprio tenant
+    match /tenants/{tenantId}/pushTokens/{uid} {
+      allow read, create, update: if pertenceAoCondominio(tenantId);
+      allow delete: if eMaster() || pertenceAoCondominio(tenantId);
+    }
+
+    match /tenants/{tenantId}/votos/{votoId} {
+      allow read: if pertenceAoCondominio(tenantId);
+      allow create: if pertenceAoCondominio(tenantId)
         && request.resource.data.usuarioId == request.auth.uid
         && request.resource.data.id == votoId;
       allow update, delete: if eMaster();
     }
 
-    match /condominios/{condominioId}/{documento=**} {
-      allow read: if pertenceAoCondominio(condominioId);
-      allow write: if podeEscreverNoCondominio(condominioId);
+    match /tenants/{tenantId}/{documento=**} {
+      allow read: if pertenceAoCondominio(tenantId);
+      allow write: if podeEscreverNoCondominio(tenantId);
     }
   }
 }

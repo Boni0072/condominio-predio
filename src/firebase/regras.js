@@ -58,6 +58,12 @@ service cloud.firestore {
       allow update, delete: if eMaster() || eSindicoDoCondominio(tenantId);
     }
 
+    // Tokens de push dos dispositivos — usuário lê/escreve apenas do próprio tenant
+    match /tenants/{tenantId}/pushTokens/{uid} {
+      allow read, create, update: if pertenceAoCondominio(tenantId);
+      allow delete: if eMaster() || pertenceAoCondominio(tenantId);
+    }
+
     match /tenants/{tenantId}/votos/{votoId} {
       allow read: if pertenceAoCondominio(tenantId);
       allow create: if pertenceAoCondominio(tenantId)

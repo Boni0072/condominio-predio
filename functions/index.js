@@ -1,0 +1,88 @@
+// Cloud Function para enviar notificações push via FCM v1 (API moderna).
+// Não precisa de "Server key": o admin SDK usa as credenciais do projeto.
+//
+// Callable function chamada pelo frontend quando a portaria registra uma
+// encomenda/visitante. A função só envia para o tenant do usuário autenticado
+// (valida pelo token de autenticação — não confia em dados do cliente).
+
+import { initializeApp } from 'firebase-admin/app'
+import { getFirestore } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
+
+initializeApp()
+
+const db = getFirestore()
+const messaging = getMessaging()
+
+// Envia push para todos os dispositivos do tenant do usuário autenticado.
+export const enviarNotificacao = onCall(async (request) => {
+  const auth = request.auth
+  if (!auth) {
+    throw new HttpsError('unauthenticated', 'Faça login para enviar notificações.')
+  }
+
+  const { titulo, corpo, url } = request.data || {}
+  if (!titulo || !corpo) {
+    throw new HttpsError('invalid-argument', 'Informe titulo e corpo.')
+  }
+
+  // Busca o perfil do usuário para descobrir o tenant (NUNCA confiar no payload)
+  const userSnap = await db.collection('users').doc(auth.uid).get()
+  if (!userSnap.exists) {
+    throw new HttpsError('not-found', 'Perfil de usuário não encontrado.')
+  }
+  const tenantId = userSnap.data().condominioId
+  if (!tenantId) {
+    throw new HttpsError('failed-precondition', 'Usuário sem condomínio vinculado.')
+  }
+
+  // Lê os tokens de push de TODOS os dispositivos do tenant
+  let pares = [] // [{ doc, token }]
+  try {
+    const snap = await db.collection('tenants').doc(tenantId).collection('pushTokens').get()
+    pares = snap.docs
+      .map((d) => ({ doc: d, token: d.data().token }))
+      .filter((p) => Boolean(p.token))
+  } catch (err) {
+    console.warn('Erro ao ler pushTokens:', err)
+  }
+  const tokens = pares.map((p) => p.token)
+  if (tokens.length === 0) {
+    return { enviados: 0, totalTokens: 0 }
+  }
+
+  // Monta a mensagem para FCM v1
+  const mensagens = tokens.map((token) => ({
+    token,
+    notification: {
+      title: titulo,
+      body: corpo,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png'
+    },
+    data: { url: url || '/', titulo, corpo },
+    webpush: {
+      fcmOptions: { link: url || '/' }
+    }
+  }))
+
+  // Envia em lote
+  const respostas = await messaging.sendEach(mensagens)
+
+  const sucessos = respostas.responses.filter((r) => r.success).length
+  const falhas = respostas.responses.length - sucessos
+
+  // Tokens que falharam podem ser removidos (aparelho desinstalou o app)
+  if (falhas > 0) {
+    const batch = db.batch()
+    pares.forEach((p, i) => {
+      if (!respostas.responses[i].success) {
+        batch.delete(p.doc.ref)
+      }
+    })
+    await batch.commit().catch((err) => console.warn('Erro ao limpar tokens inválidos:', err))
+  }
+
+  return { enviados: sucessos, falhas, totalTokens: tokens.length }
+})

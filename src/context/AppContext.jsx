@@ -4,6 +4,7 @@ import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where
 import { db } from '../firebase/config.js'
 import { load, save, uid, nowISO } from '../utils/storage.js'
 import { notificarNovaEncomenda, notificarNovoVisitante, solicitarPermissao } from '../utils/notificacao.js'
+import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, enviarPushParaToken, ativarListenerFrente } from '../utils/push.js'
 
 const AppContext = createContext(null)
 
@@ -64,6 +65,17 @@ export function AppProvider({ children }) {
   const [assembleias, setAssembleias] = useState([])
   const [votacoes, setVotacoes] = useState([])
   const [votos, setVotos] = useState([])
+
+  // Registra este dispositivo para receber push do seu condomínio
+  useEffect(() => {
+    if (firestoreAtivo && userProfile?.uid) {
+      salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
+        dispositivo: navigator.platform || 'desconhecido'
+      }).catch(() => {})
+      // Recebe notificações também com o app aberto
+      ativarListenerFrente()
+    }
+  }, [firestoreAtivo, userProfile?.uid, userProfile?.condominioId])
 
   useEffect(() => {
     if (!firestoreAtivo) return undefined
@@ -133,8 +145,12 @@ export function AppProvider({ children }) {
       return atualizado
     })
     salvarDocumento('visitantes', item)
-    // Notifica em segundo plano
+    // Notificação local (funciona enquanto o app está aberto/minimizado)
     notificarNovoVisitante(item)
+    // Push real para o tenant (funciona mesmo com o app FECHADO no celular)
+    if (userProfile?.condominioId) {
+      notificarVisitantePush(userProfile.condominioId, item).catch(() => {})
+    }
   }
 
   function registrarSaida(id) {
@@ -165,8 +181,12 @@ export function AppProvider({ children }) {
       return atualizado
     })
     salvarDocumento('encomendas', item)
-    // Notifica em segundo plano
+    // Notificação local (funciona enquanto o app está aberto/minimizado)
     notificarNovaEncomenda(item)
+    // Push real para o tenant (funciona mesmo com o app FECHADO no celular)
+    if (userProfile?.condominioId) {
+      notificarEncomendaPush(userProfile.condominioId, item).catch(() => {})
+    }
   }
 
   function confirmarRetirada(id, assinatura) {
