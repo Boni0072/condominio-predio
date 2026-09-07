@@ -1,6 +1,6 @@
 // Utilidade de Web Push via Firebase Cloud Messaging (FCM)
 // Funciona mesmo com o app FECHADO no celular, pois o push é enviado
-// pelo servidor FCM e exibido pelo service worker (firebase-messaging-sw.js).
+// pelo servidor FCM e exibido pelo service worker único (src/sw.js).
 
 import { getToken, onMessage } from 'firebase/messaging'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -19,15 +19,23 @@ export function pushConfigurado() {
   return Boolean(FCM_VAPID_KEY && FCM_VAPID_KEY !== 'SUA_VAPID_KEY_AQUI')
 }
 
-// Registra o service worker do FCM na raiz (escopo padrão)
+// Retorna o registro do ÚNICO service worker do app (registrado em main.jsx).
+// Não registramos um segundo SW aqui: dois SWs no mesmo escopo "/" competem
+// entre si e um acaba substituindo o outro, fazendo o push parar de
+// funcionar com o app fechado. O src/sw.js já cuida do Firebase Messaging.
 export async function registrarServiceWorkerFCM() {
   if (!('serviceWorker' in navigator)) return null
   try {
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
-    console.log('[PUSH] SW FCM registrado:', reg.scope)
-    return reg
+    // Garante que o SW principal já está registrado (caso esta função seja
+    // chamada antes do listener de "load" em main.jsx terminar).
+    const existente = await navigator.serviceWorker.getRegistration('/')
+    const registration = existente || (await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
+    // Espera o SW ficar ativo — getToken() precisa de um registration.active
+    const pronto = await navigator.serviceWorker.ready
+    console.log('[PUSH] Usando SW único já ativo:', pronto.scope)
+    return registration.active ? registration : pronto
   } catch (err) {
-    console.warn('[PUSH] Falha ao registrar SW do FCM:', err)
+    console.warn('[PUSH] Falha ao obter SW registrado:', err)
     return null
   }
 }

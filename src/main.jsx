@@ -11,32 +11,27 @@ import { iniciarTema } from './utils/tema.js'
 iniciarTema()
 
 // Registro do Service Worker
+//
+// IMPORTANTE: existe apenas UM service worker no app (/sw.js). Ele cuida do
+// cache do PWA E das notificações push do Firebase ao mesmo tempo (veja
+// src/sw.js). Antes havia um segundo registro para "firebase-messaging-sw.js"
+// no mesmo escopo "/" — dois SWs disputando o mesmo escopo faz o navegador
+// descartar um deles a cada atualização, e era por isso que as notificações
+// paravam de chegar com o app fechado. NÃO registre outro SW além deste.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     if (import.meta.env.DEV) {
-      // Em desenvolvimento, desregistra SWs antigos — mas preserva o SW do FCM,
-      // senão o registro de push é invalidado a cada recarga.
+      // Em desenvolvimento, desregistra SWs antigos para evitar cache velho.
       const regs = await navigator.serviceWorker.getRegistrations()
-      for (const reg of regs) {
-        const swUrl = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || ''
-        if (swUrl.includes('firebase-messaging-sw.js')) continue
-        reg.unregister()
-      }
+      for (const reg of regs) reg.unregister()
       const keys = await caches.keys()
       await Promise.all(keys.map((k) => caches.delete(k)))
     } else {
-      // Em produção, registra o SW do PWA (gerado pelo vite-plugin-pwa)
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        console.log('[SW] Service Worker registrado:', registration.scope)
+        console.log('[SW] Service Worker único registrado (PWA + Push):', registration.scope)
       } catch (err) {
         console.warn('[SW] Falha ao registrar Service Worker:', err)
-      }
-      // Registra o SW do Firebase Cloud Messaging (notificações push mesmo com app fechado)
-      try {
-        import('./utils/push.js').then(({ registrarServiceWorkerFCM }) => registrarServiceWorkerFCM())
-      } catch (err) {
-        console.warn('[PUSH] Falha ao carregar registro do FCM:', err)
       }
     }
   })
