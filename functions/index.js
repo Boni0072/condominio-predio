@@ -16,7 +16,8 @@ const db = getFirestore()
 const messaging = getMessaging()
 
 // Envia push para todos os dispositivos do tenant do usuário autenticado.
-export const enviarNotificacao = onCall(async (request) => {
+// cors: true permite a chamada pelo navegador (localhost e domínio publicado).
+export const enviarNotificacao = onCall({ cors: true }, async (request) => {
   const auth = request.auth
   if (!auth) {
     throw new HttpsError('unauthenticated', 'Faça login para enviar notificações.')

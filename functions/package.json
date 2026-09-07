@@ -2,7 +2,7 @@
   "name": "functions",
   "description": "Cloud Functions do condomínio — envio de notificações push (FCM v1)",
   "engines": {
-    "node": "18"
+    "node": "22"
   },
   "main": "index.js",
   "type": "module",
