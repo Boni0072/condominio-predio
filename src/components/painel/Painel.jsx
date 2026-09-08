@@ -45,12 +45,42 @@ function noMes(value, periodoMes) {
   return !periodoMes || getMonthKey(value) === periodoMes
 }
 
-function NoCondominioList({ periodoMes }) {
+function normalizarUnidade(valor) {
+  return String(valor || '').trim().toLowerCase()
+}
+
+// Regra de privacidade: o MORADOR só enxerga registros da própria unidade
+// (ou endereçados ao próprio nome). Demais perfis (síndico, zelador,
+// portaria, master) veem tudo.
+function ehDoProprioMorador(registro, userProfile) {
+  if (userProfile?.role !== 'morador') return true
+  const minhaUnidade = normalizarUnidade(userProfile.unidade)
+  const meuNome = normalizarUnidade(userProfile.nome)
+  if (minhaUnidade && normalizarUnidade(registro.unidade) === minhaUnidade) return true
+  if (meuNome && normalizarUnidade(registro.destinatario) === meuNome) return true
+  return false
+}
+
+function NoCondominioList({ periodoMes, userProfile }) {
   const { visitantes, registrarSaida } = useApp()
-  const dentro = visitantes.filter((v) => !v.saida && noMes(v.entrada, periodoMes))
+  const ehMorador = userProfile?.role === 'morador'
+  const dentro = visitantes
+    .filter((v) => !v.saida && noMes(v.entrada, periodoMes))
+    .filter((v) => ehDoProprioMorador(v, userProfile))
 
   if (dentro.length === 0) {
-    return <div className="empty-state">Nenhum visitante no condomínio agora.</div>
+    if (ehMorador && !normalizarUnidade(userProfile?.unidade)) {
+      return (
+        <div className="empty-state">
+          Sua unidade não está definida no perfil. Avise o síndico para atualizar seu cadastro e ver os visitantes da sua unidade.
+        </div>
+      )
+    }
+    return (
+      <div className="empty-state">
+        {ehMorador ? 'Nenhum visitante na sua unidade agora.' : 'Nenhum visitante no condomínio agora.'}
+      </div>
+    )
   }
 
   return (
@@ -65,31 +95,49 @@ function NoCondominioList({ periodoMes }) {
               <span>· entrada {formatDateTime(v.entrada)}</span>
             </div>
           </div>
-          <div className="log-actions">
-            <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
-              Registrar saída
-            </button>
-          </div>
+          {!ehMorador && (
+            <div className="log-actions">
+              <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
+                Registrar saída
+              </button>
+            </div>
+          )}
         </div>
       ))}
-      {dentro.length > 5 && (
+      {dentro.length > 5 && !ehMorador && (
         <div className="list-mais">
           <Link to="/portaria/visitantes">Ver todos os {dentro.length} visitantes…</Link>
         </div>
+      )}
+      {dentro.length > 5 && ehMorador && (
+        <div className="list-mais">…e mais {dentro.length - 5} visitante(s) da sua unidade.</div>
       )}
     </div>
   )
 }
 
-function EncomendasAguardandoList({ periodoMes }) {
+function EncomendasAguardandoList({ periodoMes, userProfile }) {
   const { encomendas, moradores, registrarAvisoEncomenda } = useApp()
   const [encomendaDetalhada, setEncomendaDetalhada] = useState(null)
+  const ehMorador = userProfile?.role === 'morador'
   const pendentes = encomendas
     .filter((e) => !e.retiradaEm && noMes(e.chegadaEm, periodoMes))
+    .filter((e) => ehDoProprioMorador(e, userProfile))
     .sort((a, b) => new Date(a.chegadaEm) - new Date(b.chegadaEm))
 
   if (pendentes.length === 0) {
-    return <div className="empty-state">Nenhuma encomenda aguardando retirada.</div>
+    if (ehMorador && !normalizarUnidade(userProfile?.unidade)) {
+      return (
+        <div className="empty-state">
+          Sua unidade não está definida no perfil. Avise o síndico para atualizar seu cadastro e ver suas encomendas.
+        </div>
+      )
+    }
+    return (
+      <div className="empty-state">
+        {ehMorador ? 'Nenhuma encomenda da sua unidade aguardando retirada.' : 'Nenhuma encomenda aguardando retirada.'}
+      </div>
+    )
   }
 
   return (
@@ -109,7 +157,7 @@ function EncomendasAguardandoList({ periodoMes }) {
               </div>
             </div>
             <div className="log-actions">
-              <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />
+              {!ehMorador && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
               <button className="btn btn-ghost btn-small" type="button" onClick={() => setEncomendaDetalhada(e)}>
                 Abrir
               </button>
@@ -117,10 +165,13 @@ function EncomendasAguardandoList({ periodoMes }) {
           </div>
         )
       })}
-      {pendentes.length > 5 && (
+      {pendentes.length > 5 && !ehMorador && (
         <div className="list-mais">
           <Link to="/portaria/encomendas">Ver todas as {pendentes.length} encomendas…</Link>
         </div>
+      )}
+      {pendentes.length > 5 && ehMorador && (
+        <div className="list-mais">…e mais {pendentes.length - 5} encomenda(s) da sua unidade.</div>
       )}
       {encomendaDetalhada && (
         <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setEncomendaDetalhada(null)}>
@@ -160,11 +211,13 @@ function EncomendasAguardandoList({ periodoMes }) {
   )
 }
 
-function AtividadeRecente({ periodoMes }) {
+function AtividadeRecente({ periodoMes, userProfile }) {
   const { visitantes, encomendas, comunicados } = useApp()
   const eventos = []
 
-  visitantes.forEach((v) => {
+  visitantes
+    .filter((v) => ehDoProprioMorador(v, userProfile))
+    .forEach((v) => {
     eventos.push({
       quando: v.entrada,
       tipo: 'Visitante',
@@ -181,7 +234,9 @@ function AtividadeRecente({ periodoMes }) {
     }
   })
 
-  encomendas.forEach((e) => {
+  encomendas
+    .filter((e) => ehDoProprioMorador(e, userProfile))
+    .forEach((e) => {
     const status = e.retiradaEm
       ? `Retirada${e.assinatura ? ' — com assinatura' : ''}`
       : 'Aguardando retirada'
@@ -286,6 +341,15 @@ export default function Painel() {
   const entregues = encomendasDoPeriodo.filter((e) => e.retiradaEm).length
   const unidades = new Set(moradoresDoPeriodo.map((m) => String(m.unidade || '').trim().toLowerCase())).size
 
+  // Privacidade: para o morador, os números exibidos consideram apenas
+  // registros da própria unidade (demais perfis veem o condomínio inteiro).
+  const ehMorador = userProfile?.role === 'morador'
+  const visitantesAtivosVisiveis = visitantesAtivos.filter((v) => ehDoProprioMorador(v, userProfile))
+  const encomendasVisiveis = encomendasDoPeriodo.filter((e) => ehDoProprioMorador(e, userProfile))
+  const aguardandoVisivel = encomendasVisiveis.filter((e) => !e.retiradaEm).length
+  const entreguesVisivel = encomendasVisiveis.filter((e) => e.retiradaEm).length
+  const destinoPortaria = ehMorador ? '/painel' : null
+
   // Calcula as despesas dentro do intervalo selecionado
   const despesasMes = despesas.filter((d) => !periodoMes || getMonthKey(d.data || d.criadoEm) === periodoMes)
   const totalMes = despesasMes.reduce((acc, d) => acc + (Number(d.valor) || 0), 0)
@@ -326,21 +390,21 @@ export default function Painel() {
 
       <div className="kpi-grid">
         <KpiCard
-          to="/portaria/visitantes"
-          num={visitantesAtivos.length}
-          label="visitantes no período"
-          tom={visitantesAtivos.length > 0 ? 'alerta' : 'ok'}
+          to={destinoPortaria || '/portaria/visitantes'}
+          num={ehMorador ? visitantesAtivosVisiveis.length : visitantesAtivos.length}
+          label={ehMorador ? 'visitantes da sua unidade no período' : 'visitantes no período'}
+          tom={(ehMorador ? visitantesAtivosVisiveis.length : visitantesAtivos.length) > 0 ? 'alerta' : 'ok'}
         />
         <KpiCard
-          to="/portaria/encomendas"
-          num={aguardando}
+          to={destinoPortaria || '/portaria/encomendas'}
+          num={ehMorador ? aguardandoVisivel : aguardando}
           label="encomendas aguardando retirada"
-          tom={aguardando > 0 ? 'alerta' : 'ok'}
+          tom={(ehMorador ? aguardandoVisivel : aguardando) > 0 ? 'alerta' : 'ok'}
         />
         <KpiCard
-          to="/portaria/encomendas"
-          num={entregues}
-          label="encomendas entregues"
+          to={destinoPortaria || '/portaria/encomendas'}
+          num={ehMorador ? entreguesVisivel : entregues}
+          label={ehMorador ? 'encomendas da sua unidade entregues' : 'encomendas entregues'}
           tom="ok"
         />
         <KpiCard
@@ -426,30 +490,28 @@ export default function Painel() {
         return item ? <OrcamentoModal mes={item.mes} ano={anoOrcamento} orcado={item.orcado} despesas={item.gastos} onFechar={() => setMesOrcamentoDetalhado(null)} /> : null
       })()}
 
-      {userProfile?.role !== 'morador' && (
-        <div className="grid-2" style={{ marginBottom: 24 }}>
-          <div className="panel">
-            <div className="panel-header">
-              <h2>No condomínio agora</h2>
-            </div>
-            <NoCondominioList periodoMes={periodoMes} />
+      <div className="grid-2" style={{ marginBottom: 24 }}>
+        <div className="panel">
+          <div className="panel-header">
+            <h2>No condomínio agora</h2>
           </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <h2>Encomendas aguardando retirada</h2>
-            </div>
-            <EncomendasAguardandoList periodoMes={periodoMes} />
-          </div>
+          <NoCondominioList periodoMes={periodoMes} userProfile={userProfile} />
         </div>
-      )}
+
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Encomendas aguardando retirada</h2>
+          </div>
+          <EncomendasAguardandoList periodoMes={periodoMes} userProfile={userProfile} />
+        </div>
+      </div>
 
       <div className="grid-2">
         <div className="panel">
           <div className="panel-header">
             <h2>Atividade recente</h2>
           </div>
-          <AtividadeRecente periodoMes={periodoMes} />
+          <AtividadeRecente periodoMes={periodoMes} userProfile={userProfile} />
         </div>
 
         <div className="panel">

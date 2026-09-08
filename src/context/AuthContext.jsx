@@ -24,6 +24,7 @@ import {
   limit
 } from 'firebase/firestore'
 import { auth, db, firebaseConfig } from '../firebase/config.js'
+import { ACESSOS_POR_PERFIL } from '../utils/permissoes.js'
 
 const AuthContext = createContext(null)
 export const MASTER_EMAIL = 'ander.fj@hotmail.com'
@@ -69,7 +70,10 @@ export function AuthProvider({ children }) {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
           if (userDoc.exists()) {
             const perfil = userDoc.data()
-            setUserProfile(perfil)
+            // Garante o campo "uid" mesmo em perfis antigos gravados sem ele:
+            // sem uid o AppContext pula o salvamento do token de push em
+            // silêncio (if (!token || !tenantId || !userUid) return null).
+            setUserProfile({ ...perfil, uid: firebaseUser.uid })
             // Buscar dados do condomínio (logo, nome, código)
             if (perfil.condominioId) {
               const condoDoc = await getDoc(doc(db, 'tenants', perfil.condominioId))
@@ -282,7 +286,12 @@ export function AuthProvider({ children }) {
         whatsapp: dados.whatsapp || '',
         role: dados.role || 'morador',
         unidade: dados.unidade?.trim() || '',
-        acessos: dados.acessos || [],
+        // Nunca salvar lista vazia: se veio vazia/ausente, grava os padrões
+        // atuais do perfil — senão o usuário nasceria sem menu nenhum.
+        acessos:
+          Array.isArray(dados.acessos) && dados.acessos.length
+            ? dados.acessos
+            : ACESSOS_POR_PERFIL[dados.role || 'morador'] || [],
         condominioId,
         status: 'ativo',
         criadoEm: serverTimestamp()

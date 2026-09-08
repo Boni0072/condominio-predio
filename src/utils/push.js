@@ -10,6 +10,15 @@ import { solicitarPermissao } from './notificacao.js'
 const PREFIX_TOKEN = 'condo_fcm_token_v2_'
 let funcoes = null
 
+// Último motivo pelo qual não conseguimos obter/salvar o token.
+// Serve para o diagnóstico das Configurações mostrar o MOTIVO real da falha
+// em vez de apenas "retornou null".
+let ultimoErroFCM = null
+
+export function ultimoErroToken() {
+  return ultimoErroFCM
+}
+
 function obterFuncoes() {
   if (!funcoes) funcoes = getFunctions(app)
   return funcoes
@@ -41,21 +50,42 @@ export async function registrarServiceWorkerFCM() {
 }
 
 // Gera (ou reutiliza) o token FCM deste dispositivo.
-export async function obterTokenFCM() {
-  if (!pushConfigurado() || !('serviceWorker' in navigator)) return null
+// Com { forcarNovo: true } ignora o cache do localStorage e pede um token
+// validado ao FCM (getToken é idempotente: devolve o mesmo token se ele ainda
+// é válido, ou um novo se o antigo foi rotacionado).
+export async function obterTokenFCM({ forcarNovo = false } = {}) {
+  if (!pushConfigurado()) {
+    ultimoErroFCM = 'VAPID key não configurada (FCM_VAPID_KEY em src/firebase/config.js)'
+    console.warn('[PUSH]', ultimoErroFCM)
+    return null
+  }
+  if (!('serviceWorker' in navigator)) {
+    ultimoErroFCM = 'Service Worker não suportado neste navegador'
+    console.warn('[PUSH]', ultimoErroFCM)
+    return null
+  }
   try {
     const permissao = await solicitarPermissao()
     if (permissao !== 'granted') {
-      console.warn('[PUSH] Permissão de notificação não concedida:', permissao)
+      ultimoErroFCM = `Permissão de notificação: "${permissao}" (precisa ser "granted")`
+      console.warn('[PUSH]', ultimoErroFCM)
       return null
     }
     const registration = await registrarServiceWorkerFCM()
     if (!registration) {
-      console.warn('[PUSH] SW do FCM indisponível (precisa de HTTPS ou localhost)')
+      ultimoErroFCM = 'Service Worker do FCM indisponível (precisa de HTTPS ou localhost)'
+      console.warn('[PUSH]', ultimoErroFCM)
       return null
     }
-    const atual = localStorage.getItem(PREFIX_TOKEN)
-    if (atual) return atual
+    // Token salvo anteriormente: devolvido direto (evita rede) quando não é
+    // para forçar. Ao salvar no Firestore SEMPRE forçamos, porque o token do
+    // localStorage pode estar vencido (o FCM rotaciona tokens e a Cloud
+    // Function apaga do Firestore os tokens que falharam no envio — gravar de
+    // novo um token morto faria o documento "sumir" a cada notificação).
+    if (!forcarNovo) {
+      const atual = localStorage.getItem(PREFIX_TOKEN)
+      if (atual) return atual
+    }
     const token = await getToken(messaging, {
       vapidKey: FCM_VAPID_KEY,
       serviceWorkerRegistration: registration
@@ -63,12 +93,15 @@ export async function obterTokenFCM() {
     if (token) {
       console.log('[PUSH] Token FCM obtido com sucesso')
       localStorage.setItem(PREFIX_TOKEN, token)
+      ultimoErroFCM = null
       return token
     }
-    console.warn('[PUSH] getToken retornou null — verifique VAPID key')
+    ultimoErroFCM = 'getToken retornou vazio — verifique se a VAPID key pertence a este projeto'
+    console.warn('[PUSH]', ultimoErroFCM)
     return null
   } catch (err) {
-    console.warn('[PUSH] Erro ao obter token FCM:', err.code, err.message)
+    ultimoErroFCM = `${err?.code || 'erro'}: ${err?.message || err}`
+    console.warn('[PUSH] Erro ao obter token FCM:', ultimoErroFCM)
     localStorage.removeItem(PREFIX_TOKEN)
     return null
   }
@@ -79,27 +112,102 @@ export function limparTokenFCM() {
   localStorage.removeItem(PREFIX_TOKEN)
 }
 
-// Salva o token do usuário no Firestore (dentro do tenant)
+// Salva o token do usuário no Firestore (dentro do tenant).
+// ESTRATÉGIA EM DUAS CAMADAS para nunca mais falhar silenciosamente:
+//   1. Grava direto do cliente (documento POR DISPOSITIVO — celular e
+//      notebook do mesmo usuário convivem sem se sobrescrever).
+//   2. Se qualquer erro ocorrer (regra do Firestore desatualizada,
+//      permission-denied, offline, etc.), chama a Cloud Function
+//      "registrarPushToken", que grava com o Admin SDK IGNORANDO as regras
+//      e deriva o tenant no servidor a partir do perfil do usuário.
 export async function salvarTokenUsuario(tenantId, userUid, info = {}) {
-  const token = await obterTokenFCM()
+  // Sempre pede um token NOVO/validado ao FCM antes de gravar: gravar um token
+  // em cache vencido cria um documento que a Cloud Function apaga no primeiro
+  // envio falho — parecia que "o pushToken nunca era criado".
+  const token = await obterTokenFCM({ forcarNovo: true })
   if (!token || !tenantId || !userUid) {
-    console.warn('[PUSH] Sem token ou dados — documento NÃO salvo')
+    console.warn('[PUSH] Documento NÃO salvo —', {
+      temToken: Boolean(token),
+      tenantId: tenantId || null,
+      userUid: userUid || null,
+      motivo: ultimoErroFCM || (token ? 'faltou tenantId/uid no perfil' : 'sem token')
+    })
+    if (tenantId && userUid) ultimoErroFCM = ultimoErroFCM || 'faltou tenantId/uid no perfil'
     return null
   }
+
+  // Chave estável do dispositivo: plataforma + ID aleatório persistido.
+  // Dois navegadores na mesma plataforma não brigam pelo mesmo documento.
+  let deviceKey = localStorage.getItem('condo_push_device_id')
+  if (!deviceKey) {
+    deviceKey = Math.random().toString(36).slice(2, 8)
+    localStorage.setItem('condo_push_device_id', deviceKey)
+  }
+  const plataformaBruta = String(info.dispositivo || navigator.platform || 'device')
+  const dispositivoId = `${plataformaBruta}-${deviceKey}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'device'
+  const docId = `${userUid}__${dispositivoId}`
+
+  const dados = {
+    token,
+    uid: userUid,
+    dispositivo: plataformaBruta,
+    origem: 'cliente',
+    atualizadoEm: new Date().toISOString()
+  }
+
+  // CAMADA 1: gravação direta pelo cliente
   try {
     const { doc, setDoc } = await import('firebase/firestore')
     const { db } = await import('../firebase/config.js')
-    await setDoc(doc(db, 'tenants', tenantId, 'pushTokens', userUid), {
-      token,
-      uid: userUid,
-      dispositivo: info.dispositivo || 'desconhecido',
-      atualizadoEm: new Date().toISOString()
-    }, { merge: true })
-    console.log('[PUSH] Token salvo no Firestore para', userUid)
+    await setDoc(doc(db, 'tenants', tenantId, 'pushTokens', docId), dados, { merge: true })
+    console.log('[PUSH] Token salvo no Firestore (cliente):', `tenants/${tenantId}/pushTokens/${docId}`)
+    ultimoErroFCM = null
+    ultimoDocIdSalvo = docId
     return token
-  } catch (err) {
-    console.warn('[PUSH] Erro ao salvar token no Firestore:', err)
+  } catch (errCliente) {
+    console.warn('[PUSH] Gravação direta falhou, tentando via Cloud Function (Admin SDK):', errCliente?.code || '', errCliente?.message || errCliente)
+  }
+
+  // CAMADA 2: fallback via Cloud Function com Admin SDK (ignora regras)
+  try {
+    const func = httpsCallable(obterFuncoes(), 'registrarPushToken')
+    const resposta = await func({ token, dispositivo: plataformaBruta, dispositivoId, tenantId })
+    const dadosResp = resposta?.data || {}
+    console.log('[PUSH] Token salvo via Cloud Function (Admin SDK):', dadosResp)
+    ultimoErroFCM = null
+    ultimoDocIdSalvo = dadosResp.docId || docId
+    return token
+  } catch (errFunc) {
+    ultimoErroFCM = `Cliente: ${errCliente?.code || errCliente?.message || errCliente} | Cloud Function: ${errFunc?.message || errFunc}`
+    console.warn('[PUSH] Falha nas duas camadas de salvamento:', ultimoErroFCM)
     return null
+  }
+}
+
+// ID do último documento de token gravado com sucesso (para o diagnóstico).
+let ultimoDocIdSalvo = null
+export function ultimoDocSalvo() {
+  return ultimoDocIdSalvo
+}
+
+// Consulta o SERVIDOR (dados reais do Firestore via Admin SDK): perfil do
+// usuário, tenant e todos os pushTokens existentes (token mascarado).
+// Usado pelo diagnóstico das Configurações — mostra a verdade do servidor,
+// não só o que o navegador vê.
+export async function diagnosticarPush() {
+  try {
+    const func = httpsCallable(obterFuncoes(), 'diagnosticoPush')
+    const resposta = await func({})
+    return resposta?.data || { erro: 'resposta vazia' }
+  } catch (err) {
+    console.warn('[PUSH] diagnosticoPush falhou:', err?.message || err)
+    return { erro: err?.message || String(err) }
   }
 }
 

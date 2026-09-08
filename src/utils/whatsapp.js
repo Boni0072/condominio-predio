@@ -30,6 +30,14 @@ export function whatsappUrl(telefone, texto = '') {
   return `https://wa.me/${numero}${query}`
 }
 
+// Monta o link https://wa.me/?text=<mensagem> SEM número de telefone: abre o
+// WhatsApp com a mensagem já escrita e o campo de busca/destinatário pronto,
+// para que o usuário escolha manualmente a quem enviar.
+export function whatsappUrlSemDestinatario(texto = '') {
+  const query = texto ? `?text=${encodeURIComponent(texto)}` : ''
+  return `https://wa.me/${query}`
+}
+
 // Formata para exibição: 5511987654321 -> (11) 98765-4321
 export function formatarWhatsApp(valor) {
   const numero = normalizarWhatsApp(valor)

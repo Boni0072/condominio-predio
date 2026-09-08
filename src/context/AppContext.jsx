@@ -4,7 +4,7 @@ import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where
 import { db } from '../firebase/config.js'
 import { load, save, uid, nowISO } from '../utils/storage.js'
 import { notificarNovaEncomenda, notificarNovoVisitante, solicitarPermissao } from '../utils/notificacao.js'
-import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, ativarListenerFrente } from '../utils/push.js'
+import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, ativarListenerFrente, enviarPushTenant } from '../utils/push.js'
 
 const AppContext = createContext(null)
 
@@ -321,6 +321,19 @@ export function AppProvider({ children }) {
       return atualizado
     })
     salvarDocumento('comunicados', item)
+    // ENVIO PARA TODOS: além de aparecer no mural, o comunicado dispara
+    // notificação push automática para TODOS os dispositivos cadastrados do
+    // condomínio (via Cloud Function, que envia para cada pushToken do tenant).
+    if (userProfile?.condominioId) {
+      enviarPushTenant(
+        userProfile.condominioId,
+        `📢 ${dados.titulo || 'Novo comunicado'}`,
+        String(dados.conteudo || '').slice(0, 180) || 'Novo comunicado publicado no mural.',
+        '/mural'
+      )
+        .then((ok) => console.log('[MURAL PUSH] Envio para o condomínio:', ok ? 'OK' : 'sem tokens/sem sucesso'))
+        .catch(() => {})
+    }
   }
 
   function removerComunicado(id) {

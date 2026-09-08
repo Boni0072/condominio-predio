@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 import { TEMAS, temaSalvo, aplicarTema, coresPersonalizadas, aplicarCoresPersonalizadas } from '../../utils/tema.js'
-import { salvarTokenUsuario, pushConfigurado } from '../../utils/push.js'
+import { salvarTokenUsuario, pushConfigurado, ultimoErroToken, ultimoDocSalvo, diagnosticarPush } from '../../utils/push.js'
 
 export default function Configuracoes() {
   const { userProfile, condominio, atualizarCondominio } = useAuth()
@@ -22,6 +22,10 @@ export default function Configuracoes() {
   const [ativandoNotif, setAtivandoNotif] = useState(false)
   const [diagnostico, setDiagnostico] = useState([])
   const inputRef = useRef(null)
+
+  // Morador consulta os dados do condomínio, mas não pode editá-los —
+  // as regras do Firestore só permitem gravação ao síndico/zelador/portaria.
+  const somenteLeitura = userProfile?.role === 'morador'
 
   const adicionarDiag = (msg) => setDiagnostico((prev) => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`])
 
@@ -112,21 +116,42 @@ export default function Configuracoes() {
 
       const token = await obterTokenFCM()
       if (!token) {
-        adicionarDiag('❌ getToken retornou null')
+        adicionarDiag(`❌ getToken falhou: ${ultimoErroToken() || 'motivo desconhecido'}`)
         return
       }
       adicionarDiag(`✅ Token obtido: ${token.substring(0, 20)}...`)
 
       // 6. Salvar
-      const salvo = await salvarTokenUsuario(userProfile?.condominioId, userProfile?.uid, {
+      if (!userProfile?.condominioId || !userProfile?.uid) {
+        adicionarDiag(`❌ Perfil sem condomínio/uid (condominioId=${userProfile?.condominioId ?? 'null'}, uid=${userProfile?.uid ?? 'null'}) — o token só é salvo para usuários vinculados a um condomínio (o login master não tem tenant).`)
+        return
+      }
+      const salvo = await salvarTokenUsuario(userProfile.condominioId, userProfile.uid, {
         dispositivo: navigator.platform || 'desconhecido'
       })
       if (salvo) {
-        adicionarDiag('✅ TOKEN SALVO NO FIRESTORE!')
+        adicionarDiag(`✅ TOKEN SALVO NO FIRESTORE: tenants/${userProfile.condominioId}/pushTokens/${ultimoDocSalvo() || userProfile.uid}`)
+        adicionarDiag('(No console: tenants → documento do condomínio → coleção pushTokens)')
         setSucesso('Token salvo! Notificações ativadas.')
         setPermissaoNotif('granted')
       } else {
-        adicionarDiag('❌ salvarTokenUsuario retornou null')
+        adicionarDiag(`❌ salvarTokenUsuario falhou: ${ultimoErroToken() || 'motivo desconhecido'}`)
+      }
+
+      // 7. Verificação no SERVIDOR via Admin SDK — mostra o que REALMENTE está
+      // gravado no Firestore, independente do que o navegador vê.
+      adicionarDiag('Consultando o servidor (dados reais do Firestore)...')
+      const diag = await diagnosticarPush()
+      if (diag?.erro) {
+        adicionarDiag(`⚠️ Verificação no servidor falhou: ${diag.erro}`)
+      } else {
+        adicionarDiag(`📋 SERVIDOR — role: ${diag.perfil?.role ?? '?'} · condominioId: ${diag.tenantId ?? 'null'} · condomínio existe: ${diag.tenantExiste ?? '?'}${diag.tenantNome ? ` (${diag.tenantNome})` : ''}`)
+        const lista = diag.pushTokens || []
+        adicionarDiag(`📋 SERVIDOR — documentos pushTokens encontrados: ${lista.length}`)
+        lista.forEach((t) => {
+          adicionarDiag(`   • ${t.id}`)
+          adicionarDiag(`     origem=${t.origem ?? '?'} · dispositivo=${t.dispositivo ?? '?'} · atualizadoEm=${t.atualizadoEm ?? '?'}`)
+        })
       }
     } catch (err) {
       adicionarDiag(`❌ Erro: ${err.message}`)
@@ -165,7 +190,11 @@ export default function Configuracoes() {
       <div className="page-header">
         <div>
           <h2>Configurações do condomínio</h2>
-          <p className="sub">Personalize o nome, logo e informações exibidas no sistema.</p>
+          <p className="sub">
+            {somenteLeitura
+              ? 'Consulte as informações do condomínio. Apenas o síndico pode alterá-las.'
+              : 'Personalize o nome, logo e informações exibidas no sistema.'}
+          </p>
         </div>
       </div>
 
@@ -202,51 +231,86 @@ export default function Configuracoes() {
             )}
           </div>
           <div className="logo-acoes">
-            <label className="btn btn-brass btn-small">
-              {processando ? 'Processando...' : 'Escolher logo'}
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleLogo}
-                style={{ display: 'none' }}
-              />
-            </label>
-            {logo && (
-              <button type="button" className="btn btn-ghost btn-small" onClick={removerLogo}>
-                Remover logo
-              </button>
+            {!somenteLeitura && (
+              <>
+                <label className="btn btn-brass btn-small">
+                  {processando ? 'Processando...' : 'Escolher logo'}
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogo}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                {logo && (
+                  <button type="button" className="btn btn-ghost btn-small" onClick={removerLogo}>
+                    Remover logo
+                  </button>
+                )}
+              </>
             )}
           </div>
-          <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
-            PNG com fundo transparente é o ideal. A imagem é redimensionada para 300px automaticamente.
-          </p>
+          {somenteLeitura ? (
+            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+              O logo é definido pelo síndico nas configurações.
+            </p>
+          ) : (
+            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+              PNG com fundo transparente é o ideal. A imagem é redimensionada para 300px automaticamente.
+            </p>
+          )}
         </div>
 
         <div className="card">
           <h3 style={{ marginBottom: 16 }}>Dados do condomínio</h3>
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="conf-nome">Nome do condomínio</label>
-              <input id="conf-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Residencial Solar" required />
-            </div>
-            <div className="field">
-              <label htmlFor="conf-endereco">Endereço</label>
-              <input id="conf-endereco" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro" />
-            </div>
-            {condominio?.codigo && (
+          {somenteLeitura ? (
+            <>
               <div className="field">
-                <label>Código de acesso do condomínio</label>
-                <div className="codigo-visual">
-                  <code>{condominio.codigo}</code>
-                  <span>Compartilhe com os moradores para criarem as contas deles. Zeladores e porteiros são cadastrados pelo síndico em Gestão de usuários.</span>
-                </div>
+                <label>Nome do condomínio</label>
+                <input value={condominio?.nome || ''} readOnly disabled />
               </div>
-            )}
-            <button type="submit" className="btn btn-brass btn-block" disabled={carregando || processando}>
-              {carregando ? 'Salvando...' : 'Salvar alterações'}
-            </button>
-          </form>
+              <div className="field">
+                <label>Endereço</label>
+                <input value={condominio?.endereco || ''} readOnly disabled />
+              </div>
+              {condominio?.codigo && (
+                <div className="field">
+                  <label>Código de acesso do condomínio</label>
+                  <div className="codigo-visual">
+                    <code>{condominio.codigo}</code>
+                    <span>Use este código para criar a conta de outros moradores da família.</span>
+                  </div>
+                </div>
+              )}
+              <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 12 }}>
+                Visualização somente leitura — solicite alterações ao síndico.
+              </p>
+            </>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <div className="field">
+                <label htmlFor="conf-nome">Nome do condomínio</label>
+                <input id="conf-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Residencial Solar" required />
+              </div>
+              <div className="field">
+                <label htmlFor="conf-endereco">Endereço</label>
+                <input id="conf-endereco" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro" />
+              </div>
+              {condominio?.codigo && (
+                <div className="field">
+                  <label>Código de acesso do condomínio</label>
+                  <div className="codigo-visual">
+                    <code>{condominio.codigo}</code>
+                    <span>Compartilhe com os moradores para criarem as contas deles. Zeladores e porteiros são cadastrados pelo síndico em Gestão de usuários.</span>
+                  </div>
+                </div>
+              )}
+              <button type="submit" className="btn btn-brass btn-block" disabled={carregando || processando}>
+                {carregando ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
 
