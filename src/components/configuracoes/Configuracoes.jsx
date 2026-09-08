@@ -209,7 +209,7 @@ export default function Configuracoes() {
                 <li>Selecione o projeto <strong>portaria-condominio-8fbc9</strong></li>
                 <li>Menu <strong>Firestore Database</strong> → aba <strong>Rules</strong></li>
                 <li>Substitua todo o conteúdo por:
-                  <pre style={{ background: 'var(--paper)', padding: 10, borderRadius: 6, fontSize: 11, overflow: 'auto', marginTop: 8 }}>{REGRAS_FIRESTORE}</pre>
+                  <pre style={{ background: 'var(--paper)', padding: 10, borderRadius: 6, fontSize: 14.3, overflow: 'auto', marginTop: 8 }}>{REGRAS_FIRESTORE}</pre>
                 </li>
                 <li>Clique em <strong>Publish</strong></li>
                 <li>Volte aqui e clique em <strong>Salvar alterações</strong></li>
@@ -252,11 +252,11 @@ export default function Configuracoes() {
             )}
           </div>
           {somenteLeitura ? (
-            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 15.6 }}>
               O logo é definido pelo síndico nas configurações.
             </p>
           ) : (
-            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+            <p className="hint" style={{ marginTop: 12, color: 'var(--ink-soft)', fontSize: 15.6 }}>
               PNG com fundo transparente é o ideal. A imagem é redimensionada para 300px automaticamente.
             </p>
           )}
@@ -283,7 +283,7 @@ export default function Configuracoes() {
                   </div>
                 </div>
               )}
-              <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 12 }}>
+              <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 15.6 }}>
                 Visualização somente leitura — solicite alterações ao síndico.
               </p>
             </>
@@ -316,7 +316,7 @@ export default function Configuracoes() {
 
       <div className="card" style={{ marginBottom: 24 }}>
         <h3 style={{ marginBottom: 4 }}>Notificações push</h3>
-        <p className="hint" style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 12 }}>
+        <p className="hint" style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 15.6 }}>
           Receba avisos de encomendas e visitantes mesmo com o app fechado. Ative em cada dispositivo que deve receber os avisos.
         </p>
         {permissaoNotif === 'granted' ? (
@@ -344,7 +344,7 @@ export default function Configuracoes() {
           {ativandoNotif ? 'Ativando...' : permissaoNotif === 'granted' ? 'Reativar notificações' : 'Ativar notificações neste dispositivo'}
         </button>
         {!userProfile?.condominioId && (
-          <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 12 }}>
+          <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 15.6 }}>
             Disponível para contas vinculadas a um condomínio.
           </p>
         )}
@@ -362,7 +362,7 @@ export default function Configuracoes() {
 
       <div className="card" style={{ marginBottom: 24 }}>
         <h3 style={{ marginBottom: 4 }}>Tema de cores do sistema</h3>
-        <p className="hint" style={{ marginBottom: 16, color: 'var(--ink-soft)', fontSize: 12 }}>
+        <p className="hint" style={{ marginBottom: 16, color: 'var(--ink-soft)', fontSize: 15.6 }}>
           Escolha a escala de cores da interface. A opção é aplicada na hora e fica salva neste dispositivo — cada máquina pode usar um tema diferente.
         </p>
         <div className="temas-lista">

@@ -345,8 +345,8 @@ export default function Usuarios() {
           {erro.includes('permiss') && (
             <div className="login-ajuda" style={{ marginBottom: 16 }}>
               <strong>Para listar os usuários, publique estas regras no Firestore (Firestore Database → Rules):</strong>
-              <pre style={{ background: 'var(--paper)', padding: 10, borderRadius: 6, fontSize: 11, overflow: 'auto', marginTop: 8 }}>{REGRAS_FIRESTORE}</pre>
-              <p style={{ marginTop: 8, fontSize: 12 }}>
+              <pre style={{ background: 'var(--paper)', padding: 10, borderRadius: 6, fontSize: 14.3, overflow: 'auto', marginTop: 8 }}>{REGRAS_FIRESTORE}</pre>
+              <p style={{ marginTop: 8, fontSize: 15.6 }}>
                 Clique em <strong>Publish</strong> — a lista recarregará automaticamente.
               </p>
             </div>

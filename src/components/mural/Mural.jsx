@@ -109,7 +109,7 @@ function ComunicadoCard({ item, canManage, onAvisar }) {
       </div>
       <p className="comunicado-body">{item.conteudo}</p>
       <div className="comunicado-footer">
-        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>— {item.autor}</span>
+        <span style={{ fontSize: 15.6, color: 'var(--ink-soft)' }}>— {item.autor}</span>
         <div className="comunicado-acoes">
           <button
             className="btn btn-whatsapp btn-small"
