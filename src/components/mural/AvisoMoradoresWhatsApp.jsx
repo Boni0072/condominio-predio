@@ -22,6 +22,8 @@ export default function AvisoMoradoresWhatsApp({ comunicados, comunicadoId, onEs
   const [modo, setModo] = useState(comunicadoId ? 'comunicado' : 'livre')
   const [textoLivre, setTextoLivre] = useState('')
   const [copiado, setCopiado] = useState(false)
+  // Lista de usuários com WhatsApp: recolhível e inicia recolhida (cerrada)
+  const [listaUsuariosAberta, setListaUsuariosAberta] = useState(false)
 
   // Destinatários com WhatsApp válido (usuários do app + moradores do cadastro,
   // sem duplicar número) — usados apenas como referência visual.
@@ -139,8 +141,19 @@ export default function AvisoMoradoresWhatsApp({ comunicados, comunicadoId, onEs
       </div>
 
       <div className="field">
-        <label>Usuários registrados com WhatsApp — {contatos.length}</label>
-        {contatos.length === 0 ? (
+        <div className="wa-usuarios-header">
+          <label>Usuários registrados com WhatsApp — {contatos.length}</label>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small panel-toggle"
+            onClick={() => setListaUsuariosAberta((v) => !v)}
+            aria-expanded={listaUsuariosAberta}
+          >
+            {listaUsuariosAberta ? '▾ Recolher' : '▸ Expandir'}
+          </button>
+        </div>
+
+        {listaUsuariosAberta && (contatos.length === 0 ? (
           <div className="empty-state">
             Nenhum usuário com WhatsApp registrado. Cadastre moradores na página Moradores ou peça aos
             usuários que atualizem seu WhatsApp nas Configurações.
@@ -158,7 +171,7 @@ export default function AvisoMoradoresWhatsApp({ comunicados, comunicadoId, onEs
               </div>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       <div className="wa-enviar">

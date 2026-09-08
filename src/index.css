@@ -907,6 +907,26 @@ a {
   border-bottom: none;
 }
 
+/* "Últimos comunicados": fila clicável que abre o modal do comunicado */
+.feed-item-btn {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: var(--ink);
+  padding: 11px 20px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+}
+
+.feed-item-btn:hover {
+  background: var(--brass-tint-12, color-mix(in srgb, var(--line) 25%, transparent));
+}
+
 .status-retirada {
   display: inline-block;
   padding: 2px 10px;
@@ -941,6 +961,23 @@ a {
   flex: 1;
   min-width: 0;
   color: var(--ink);
+}
+
+/* Contenedor título + mensaje en "Últimos comunicados" del painel */
+.feed-cuerpo {
+  flex: 1;
+  min-width: 0;
+  display: block;
+}
+
+.feed-mensaje {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .list-mais {
@@ -978,6 +1015,44 @@ a {
 .panel-header h2 {
   font-size: 15px;
   font-weight: 600;
+}
+
+/* Contador total no cabeçalho das seções do painel */
+.panel-total {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 20px;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1;
+  background: color-mix(in srgb, var(--line) 35%, transparent);
+  color: var(--ink);
+  margin-left: 2px;
+}
+
+/* Código de cor por seção */
+.panel-total--blue {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.panel-total--brick {
+  background: var(--brick-soft);
+  color: var(--brick);
+}
+
+.panel-total--green {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.panel-total--brass {
+  background: var(--brass-soft);
+  color: var(--brass-dark);
 }
 
 .panel-toggle {
@@ -1401,6 +1476,20 @@ a {
   font-size: 13.5px;
   color: var(--ink-soft);
   margin-bottom: 16px;
+}
+
+/* Modal do comunicado (painel → Últimos comunicados) */
+.comunicado-modal-contenido {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 0 0 14px;
+}
+
+.comunicado-modal-autor {
+  font-size: 13px;
+  color: var(--ink-soft);
 }
 
 .modal-actions {
@@ -2203,6 +2292,15 @@ a {
   margin-top: 4px;
 }
 
+/* Lista de usuários com WhatsApp: recolhível (inicia recolhida) */
+.wa-usuarios-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 /* Barra de busca + ações em massa sobre a lista de destinatários */
 .wa-tools {
   display: flex;
@@ -2727,10 +2825,34 @@ a {
 }
 
 .barra {
+  position: relative;
   width: 14px;
   min-height: 0;
   border-radius: 3px 3px 0 0;
   transition: filter 0.15s ease;
+}
+
+/* Rótulo de datos: mostra o valor sobre a barra (Orçado / Realizado) */
+.barra::after {
+  content: attr(data-rotulo);
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--ink);
+}
+
+.barra-orcado::after {
+  color: var(--brass-dark);
+}
+
+.barra-realizado::after {
+  color: var(--blue);
 }
 
 .barra-estourada {

@@ -289,6 +289,7 @@ function AtividadeRecente({ periodoMes, userProfile }) {
 
 function UltimosComunicados({ periodoMes }) {
   const { comunicados } = useApp()
+  const [comunicadoDetalhado, setComunicadoDetalhado] = useState(null)
   const recentes = [...comunicados]
     .filter((comunicado) => noMes(comunicado.criadoEm, periodoMes))
     .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))
@@ -301,7 +302,13 @@ function UltimosComunicados({ periodoMes }) {
   return (
     <div>
       {recentes.map((c) => (
-        <div className="feed-item" key={c.id}>
+        <button
+          type="button"
+          className="feed-item feed-item-btn"
+          key={c.id}
+          onClick={() => setComunicadoDetalhado(c)}
+          title="Ver comunicado completo"
+        >
           <span className="feed-hora">{formatDate(c.criadoEm)}</span>
           <span
             className={`badge ${
@@ -314,12 +321,53 @@ function UltimosComunicados({ periodoMes }) {
           >
             {CATEGORIAS_MURAL[c.categoria] || CATEGORIAS_MURAL.geral}
           </span>
-          <span className="feed-texto">
-            {c.titulo}
-            {c.fixado ? ' ●' : ''}
-          </span>
-        </div>
+          <div className="feed-cuerpo">
+            <span className="feed-texto">
+              {c.titulo}
+              {c.fixado ? ' ●' : ''}
+            </span>
+            {c.conteudo && (
+              <p className="feed-mensaje">{c.conteudo}</p>
+            )}
+          </div>
+        </button>
       ))}
+
+      {comunicadoDetalhado && (
+        <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setComunicadoDetalhado(null)}>
+          <div className="modal comunicado-modal" role="dialog" aria-modal="true" aria-labelledby="comunicado-modal-titulo">
+            <div className="modal-header">
+              <div>
+                <h2 id="comunicado-modal-titulo">{comunicadoDetalhado.titulo}</h2>
+                <p className="sub">
+                  <span className={`badge ${
+                    comunicadoDetalhado.categoria === 'urgente' || comunicadoDetalhado.categoria === 'manutencao'
+                      ? 'badge-brick'
+                      : comunicadoDetalhado.categoria === 'evento'
+                        ? 'badge-blue'
+                        : 'badge-green'
+                  }`}>
+                    {CATEGORIAS_MURAL[comunicadoDetalhado.categoria] || CATEGORIAS_MURAL.geral}
+                  </span>{' '}
+                  {comunicadoDetalhado.fixado && '● Fixado '}· {formatDate(comunicadoDetalhado.criadoEm)}
+                </p>
+              </div>
+              <button type="button" className="modal-fechar" onClick={() => setComunicadoDetalhado(null)} aria-label="Fechar">×</button>
+            </div>
+            <div className="modal-body">
+              {comunicadoDetalhado.conteudo ? (
+                <p className="comunicado-modal-contenido">{comunicadoDetalhado.conteudo}</p>
+              ) : (
+                <p className="empty">Este comunicado não possui texto adicional.</p>
+              )}
+            </div>
+            <div className="modal-actions">
+              <span className="comunicado-modal-autor">— {comunicadoDetalhado.autor || 'Administração'}</span>
+              <button type="button" className="btn btn-ghost" onClick={() => setComunicadoDetalhado(null)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -331,12 +379,27 @@ export default function Painel() {
   const mesAtual = new Date().toISOString().slice(0, 7)
   const [periodoMes, setPeriodoMes] = useState(mesAtual)
   const [despesasAbertas, setDespesasAbertas] = useState(false)
+  const [condominioAberto, setCondominioAberto] = useState(false)
+  const [encomendasAberta, setEncomendasAberta] = useState(false)
+  const [atividadeAberta, setAtividadeAberta] = useState(false)
+  const [comunicadosAberto, setComunicadosAberto] = useState(false)
   const [mesOrcamentoDetalhado, setMesOrcamentoDetalhado] = useState(null)
   const visitantesDoPeriodo = visitantes.filter((v) => noMes(v.entrada, periodoMes))
   const visitantesAtivos = visitantesDoPeriodo.filter((v) => !v.saida)
   const encomendasDoPeriodo = encomendas.filter((e) => noMes(e.chegadaEm, periodoMes))
   const moradoresDoPeriodo = moradores.filter((m) => noMes(m.criadoEm, periodoMes))
   const comunicadosDoPeriodo = comunicados.filter((c) => noMes(c.criadoEm, periodoMes))
+  // Total de eventos da "Atividade recente" (mesma lógica da lista): 1 evento por
+  // entrada de visitante + 1 por saída + 1 por encomenda + 1 por comunicado, do período.
+  const totalAtividade =
+    visitantes
+      .filter((v) => ehDoProprioMorador(v, userProfile))
+      .reduce(
+        (acc, v) => acc + (noMes(v.entrada, periodoMes) ? 1 : 0) + (v.saida && noMes(v.saida, periodoMes) ? 1 : 0),
+        0
+      ) +
+    encomendas.filter((e) => ehDoProprioMorador(e, userProfile) && noMes(e.retiradaEm || e.chegadaEm, periodoMes)).length +
+    comunicados.filter((c) => noMes(c.criadoEm, periodoMes)).length
   const aguardando = encomendasDoPeriodo.filter((e) => !e.retiradaEm).length
   const entregues = encomendasDoPeriodo.filter((e) => e.retiradaEm).length
   const unidades = new Set(moradoresDoPeriodo.map((m) => String(m.unidade || '').trim().toLowerCase())).size
@@ -428,8 +491,18 @@ export default function Painel() {
             {dadosOrcamento.map((item) => (
               <button type="button" className="orcamento-mes" key={item.nome} onClick={() => setMesOrcamentoDetalhado(item.mes)} aria-label={`Ver detalhes do orçamento de ${item.nome}`}>
                 <div className="orcamento-barras">
-                  <span className="barra barra-orcado" style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorOrcamento) * 100) : 0}%` }} />
-                  <span className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`} style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorOrcamento) * 100) : 0}%` }} />
+                  <span
+                    className="barra barra-orcado"
+                    data-rotulo={item.orcado > 0 ? formatCurrency(item.orcado) : ''}
+                    style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorOrcamento) * 100) : 0}%` }}
+                    title={`Orçado: ${formatCurrency(item.orcado)}`}
+                  />
+                  <span
+                    className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`}
+                    data-rotulo={item.realizado > 0 ? formatCurrency(item.realizado) : ''}
+                    style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorOrcamento) * 100) : 0}%` }}
+                    title={`Realizado: ${formatCurrency(item.realizado)}`}
+                  />
                 </div>
                 <strong>{item.nome}</strong>
               </button>
@@ -493,32 +566,64 @@ export default function Painel() {
       <div className="grid-2" style={{ marginBottom: 24 }}>
         <div className="panel">
           <div className="panel-header">
-            <h2>No condomínio agora</h2>
+            <h2>No condomínio agora <span className="panel-total panel-total--blue">{visitantesAtivosVisiveis.length}</span></h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small panel-toggle"
+              onClick={() => setCondominioAberto((v) => !v)}
+              aria-expanded={condominioAberto}
+            >
+              {condominioAberto ? '▾ Recolher' : '▸ Expandir'}
+            </button>
           </div>
-          <NoCondominioList periodoMes={periodoMes} userProfile={userProfile} />
+          {condominioAberto && <NoCondominioList periodoMes={periodoMes} userProfile={userProfile} />}
         </div>
 
         <div className="panel">
           <div className="panel-header">
-            <h2>Encomendas aguardando retirada</h2>
+            <h2>Encomendas aguardando retirada <span className="panel-total panel-total--brick">{aguardandoVisivel}</span></h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small panel-toggle"
+              onClick={() => setEncomendasAberta((v) => !v)}
+              aria-expanded={encomendasAberta}
+            >
+              {encomendasAberta ? '▾ Recolher' : '▸ Expandir'}
+            </button>
           </div>
-          <EncomendasAguardandoList periodoMes={periodoMes} userProfile={userProfile} />
+          {encomendasAberta && <EncomendasAguardandoList periodoMes={periodoMes} userProfile={userProfile} />}
         </div>
       </div>
 
       <div className="grid-2">
         <div className="panel">
           <div className="panel-header">
-            <h2>Atividade recente</h2>
+            <h2>Atividade recente <span className="panel-total panel-total--green">{totalAtividade}</span></h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small panel-toggle"
+              onClick={() => setAtividadeAberta((v) => !v)}
+              aria-expanded={atividadeAberta}
+            >
+              {atividadeAberta ? '▾ Recolher' : '▸ Expandir'}
+            </button>
           </div>
-          <AtividadeRecente periodoMes={periodoMes} userProfile={userProfile} />
+          {atividadeAberta && <AtividadeRecente periodoMes={periodoMes} userProfile={userProfile} />}
         </div>
 
         <div className="panel">
           <div className="panel-header">
-            <h2>Últimos comunicados</h2>
+            <h2>Últimos comunicados <span className="panel-total panel-total--brass">{comunicadosDoPeriodo.length}</span></h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small panel-toggle"
+              onClick={() => setComunicadosAberto((v) => !v)}
+              aria-expanded={comunicadosAberto}
+            >
+              {comunicadosAberto ? '▾ Recolher' : '▸ Expandir'}
+            </button>
           </div>
-          <UltimosComunicados periodoMes={periodoMes} />
+          {comunicadosAberto && <UltimosComunicados periodoMes={periodoMes} />}
         </div>
       </div>
     </div>

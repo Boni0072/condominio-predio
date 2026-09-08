@@ -195,8 +195,18 @@ export default function Orcamento() {
           {meses.map((item) => (
             <button type="button" className="orcamento-mes" key={item.mes} onClick={() => setMesDetalhado(item.mes)} aria-label={`Ver detalhes de ${item.nome}`}>
               <div className="orcamento-barras">
-                <span className="barra barra-orcado" style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorValor) * 100) : 0}%` }} title={`Orçado: ${dinheiro(item.orcado)}`} />
-                <span className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`} style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorValor) * 100) : 0}%` }} title={`Realizado: ${dinheiro(item.realizado)}`} />
+                <span
+                  className="barra barra-orcado"
+                  data-rotulo={item.orcado > 0 ? dinheiro(item.orcado) : ''}
+                  style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorValor) * 100) : 0}%` }}
+                  title={`Orçado: ${dinheiro(item.orcado)}`}
+                />
+                <span
+                  className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`}
+                  data-rotulo={item.realizado > 0 ? dinheiro(item.realizado) : ''}
+                  style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorValor) * 100) : 0}%` }}
+                  title={`Realizado: ${dinheiro(item.realizado)}`}
+                />
               </div>
               <strong>{item.nome.slice(0, 3)}</strong>
               <small>{dinheiro(item.realizado)}</small>
