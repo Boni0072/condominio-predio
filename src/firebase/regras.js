@@ -86,6 +86,48 @@ service cloud.firestore {
       allow update, delete: if eMaster();
     }
 
+    // Sala de vídeo das assembleias (WebRTC mesh com o Firestore como
+    // sinalização). Presença: cada participante grava o próprio documento;
+    // qualquer membro pode ler a lista da sala e apagar presenças "fantasmas"
+    // (aba fechada sem clicar em "Sair", sem batimento recente).
+    match /tenants/{tenantId}/salasVideo/{salaId}/participantes/{uid} {
+      allow read, delete: if pertenceAoCondominio(tenantId);
+      allow create, update: if pertenceAoCondominio(tenantId)
+        && request.auth.uid == uid;
+    }
+
+    // Sinalização WebRTC: documentos de offer/answer/candidatos ICE. Somente
+    // o autor cria (de == uid); autor ou destinatário apaga após processar.
+    // Sem update: mensagens são imutáveis.
+    match /tenants/{tenantId}/salasVideo/{salaId}/sinais/{sinalId} {
+      allow read: if pertenceAoCondominio(tenantId);
+      allow create: if pertenceAoCondominio(tenantId)
+        && request.resource.data.de == request.auth.uid;
+      allow delete: if pertenceAoCondominio(tenantId)
+        && (resource.data.de == request.auth.uid || resource.data.para == request.auth.uid);
+    }
+
+    // Chat coletivo da assembleia: mensagens persistidas (não são apagadas
+    // após processadas, como os sinais). Qualquer membro do condomínio pode
+    // ler o histórico e enviar mensagens. Sem update/delete: uma mensagem
+    // enviada não é editada nem removida por outros (exceto administração
+    // do Firebase, se necessário).
+    match /tenants/{tenantId}/salasVideo/{salaId}/mensagens/{mensagemId} {
+      allow read: if pertenceAoCondominio(tenantId);
+      allow create: if pertenceAoCondominio(tenantId)
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Gravações de vídeo da reunião: leitura por qualquer membro; criação
+    // apenas pelo participante que gravou (por == uid). Sem update/delete:
+    // gravações são imutáveis.
+    match /tenants/{tenantId}/salasVideo/{salaId}/gravacoes/{gravacaoId} {
+      allow read: if pertenceAoCondominio(tenantId);
+      allow create: if pertenceAoCondominio(tenantId)
+        && request.resource.data.por == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /tenants/{tenantId}/{documento=**} {
       // Leitura: qualquer membro do condomínio (inclui conselheiro, que precisa
       // ver orçamentos/despesas para votar e "Firmar e guardar aprovação").

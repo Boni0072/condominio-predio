@@ -3451,6 +3451,395 @@ a {
   color: var(--ink-soft);
 }
 
+/* ---------- Sala de vídeo das assembleias (WebRTC) ---------- */
+
+.assembleia-sala {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-card);
+  padding: 14px;
+  margin: 18px 0;
+}
+
+.assembleia-sala-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.assembleia-sala-badge {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--brass-tint-12);
+  white-space: nowrap;
+}
+
+.assembleia-sala-badge-fora {
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.assembleia-sala-cta {
+  display: grid;
+  gap: 10px;
+}
+
+.assembleia-sala-cta p,
+.assembleia-sala-aviso {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 15.6px;
+}
+
+.assembleia-sala-erro {
+  margin: 10px 0 0;
+  color: var(--brick);
+  font-size: 14.3px;
+}
+
+.assembleia-sala-link {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: 14.3px;
+}
+
+.assembleia-sala-link a {
+  color: var(--brass-dark);
+  font-weight: 600;
+}
+
+.assembleia-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+
+.assembleia-video-item {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: #10181d;
+}
+
+.assembleia-video-item video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #10181d;
+}
+
+.assembleia-video-avatar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-size: 40px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(160deg, #24323b 0%, #10181d 100%);
+}
+
+.assembleia-video-info {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assembleia-video-nome {
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  background: rgba(16, 24, 29, 0.78);
+  color: #ffffff;
+  font-size: 14.3px;
+}
+
+.assembleia-video-papel {
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  background: rgba(16, 24, 29, 0.55);
+  color: #dfe5e9;
+  font-size: 13px;
+}
+
+.assembleia-video-estado {
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  background: var(--brick);
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.assembleia-video-estado-camera {
+  background: var(--blue);
+}
+
+/* Botão "Entrar na sala de vídeo": fica opaco/desativado visualmente quando
+   a assembleia está encerrada (o disabled nativo já bloqueia o clique, e a
+   classe reforça o visual "apagado" para deixar o estado claro ao usuário). */
+.btn-sala-entrar,
+.btn-sala-entrar:disabled,
+.btn-sala-entrar[disabled] {
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.btn-sala-entrar:disabled,
+.btn-sala-entrar[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+/* Indicador de gravação em andamento (ponto pulsante + texto). */
+.assembleia-sala-gravando {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--brick) 12%, transparent);
+  color: var(--brick);
+  font-size: 14.3px;
+  font-weight: 600;
+}
+
+.assembleia-sala-gravando-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brick);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--brick) 55%, transparent);
+  animation: assembleia-pulsar 1.4s infinite;
+}
+
+@keyframes assembleia-pulsar {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brick) 55%, transparent); }
+  70% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--brick) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brick) 0%, transparent); }
+}
+
+/* Botão de ação destrutiva (Sair da sala, Encerrar assembleia). */
+.btn-danger {
+  background: var(--brick);
+  color: #ffffff;
+}
+
+.btn-danger:hover {
+  background: #93391f;
+}
+
+/* ---------- Chat coletivo da assembleia ---------- */
+
+.assembleia-chat {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.assembleia-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-raised);
+}
+
+.assembleia-chat-header h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.assembleia-chat-mensagens {
+  max-height: 320px;
+  min-height: 160px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+.assembleia-chat-vazio {
+  margin: auto;
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  text-align: center;
+}
+
+.assembleia-mensagem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  max-width: 85%;
+}
+
+.assembleia-mensagem-propria {
+  align-self: flex-end;
+  background: var(--brass-tint-12);
+  border-color: transparent;
+}
+
+.assembleia-mensagem-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.assembleia-mensagem-autor {
+  font-size: 14.3px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.assembleia-mensagem-autor-admin {
+  color: var(--brass-dark);
+}
+
+.assembleia-mensagem-selo {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--brass);
+  color: var(--brass-contrast);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.assembleia-mensagem-hora {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.assembleia-mensagem-texto {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.assembleia-chat-envio {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--paper-raised);
+}
+
+.assembleia-chat-envio input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  outline: none;
+}
+
+.assembleia-chat-envio input:focus {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 2px var(--brass-tint-12);
+}
+
+@media (max-width: 720px) {
+  .assembleia-video-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .assembleia-video-item {
+    aspect-ratio: 3 / 4;
+  }
+}
+
+/* ---------- Lista de gravações da assembleia ---------- */
+
+.assembleia-gravacoes {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 18px;
+}
+
+.assembleia-gravacoes-lista {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.assembleia-gravacao-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  text-decoration: none;
+  color: var(--ink);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.assembleia-gravacao-item:hover {
+  background: var(--paper-raised);
+  border-color: var(--brass-tint-24);
+}
+
+.assembleia-gravacao-icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--brick);
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.assembleia-gravacao-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assembleia-gravacao-nome {
+  font-weight: 600;
+  font-size: 14.3px;
+}
+
+.assembleia-gravacao-detalhes {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
 @media (max-width: 1024px) {
   .assembleia-layout {
     grid-template-columns: 1fr;

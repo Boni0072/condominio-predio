@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../context/AppContext.jsx'
 import { formatDateTime } from '../../utils/storage.js'
+import SalaVideo from './SalaVideo.jsx'
 
 const FORM_ASSEMBLEIA = { titulo: '', data: '', pauta: '', link: '' }
 
@@ -95,7 +96,7 @@ export default function Assembleias() {
         <div className="form-grid">
           <div className="field"><label>Título</label><input value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Assembleia geral ordinária" required /></div>
           <div className="field"><label>Data e hora</label><input type="datetime-local" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} required /></div>
-          <div className="field"><label>Link da reunião online</label><input type="url" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="Cole o link do Teams ou Google Meet" /></div>
+          <div className="field"><label>Link da reunião online (opcional)</label><input type="url" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="Alternativa à sala de vídeo: cole o link do Teams ou Google Meet" /></div>
         </div>
         <div className="field"><label>Pauta</label><textarea rows="3" value={form.pauta} onChange={(e) => setForm({ ...form, pauta: e.target.value })} placeholder="Assuntos que serão discutidos" /></div>
         <button className="btn btn-brass" type="submit">Agendar reunião</button>
@@ -113,7 +114,8 @@ export default function Assembleias() {
 
         <section className="card assembleia-detalhe">
           {!atual ? <div className="assembleia-vazio"><h3>Selecione uma reunião</h3><p>Escolha uma reunião para ver a pauta e participar das votações.</p></div> : <>
-            <div className="panel-header"><div><h3>{atual.titulo}</h3><p className="field-help">{dataLegivel(atual.data)} · {atual.encerrada ? 'Encerrada' : 'Aberta'}</p></div><div className="assembleia-acoes"><button type="button" className="btn btn-small btn-ghost" onClick={() => setAssembleiaSelecionada(null)}>Voltar para reuniões</button>{atual.link && !atual.encerrada ? <a className="btn btn-brass btn-small" href={atual.link} target="_blank" rel="noreferrer">Entrar na reunião online</a> : !atual.encerrada && <span className="field-help">Link online não informado</span>}{podeAdministrar && !atual.encerrada && <button type="button" className="btn btn-small btn-danger" onClick={() => encerrarAssembleia(atual.id)}>Encerrar assembleia</button>}</div></div>
+            <div className="panel-header"><div><h3>{atual.titulo}</h3><p className="field-help">{dataLegivel(atual.data)} · {atual.encerrada ? 'Encerrada' : 'Aberta'}</p></div><div className="assembleia-acoes"><button type="button" className="btn btn-small btn-ghost" onClick={() => setAssembleiaSelecionada(null)}>Voltar para reuniões</button>{podeAdministrar && !atual.encerrada && <button type="button" className="btn btn-small btn-danger" onClick={() => encerrarAssembleia(atual.id)}>Encerrar assembleia</button>}</div></div>
+            <SalaVideo assembleiaId={atual.id} usuario={userProfile} ativo={!atual.encerrada} linkExterno={atual.link} />
             {atual.pauta && <div className="assembleia-pauta"><strong>Pauta</strong><p>{atual.pauta}</p></div>}
             {podeAdministrar && <form className="assembleia-votacao-form" onSubmit={salvarPesquisa}><h4>Criar pesquisa de votos</h4><input type="hidden" value={pesquisa.assembleiaId} /><div className="field"><label>Pergunta</label><input value={pesquisa.pergunta} onChange={(e) => setPesquisa({ ...pesquisa, pergunta: e.target.value, assembleiaId: atual.id })} placeholder="Aprovar a reforma da fachada?" required /></div><div className="field"><label>Opções (uma por linha)</label><textarea rows="3" value={pesquisa.opcoes} onChange={(e) => setPesquisa({ ...pesquisa, opcoes: e.target.value })} /></div><button className="btn btn-ghost" type="submit">Publicar pesquisa</button></form>}
             <div className="assembleia-pesquisas"><h4>Votações</h4>{pesquisasDaReuniao.length === 0 ? <p className="empty">Nenhuma pesquisa criada.</p> : pesquisasDaReuniao.map((item) => <PesquisaCard key={item.id} pesquisa={item} votos={votos} usuario={userProfile} podeAdministrar={podeAdministrar} reuniaoEncerrada={atual.encerrada} onVotar={votar} onEncerrar={encerrarVotacao} />)}</div>

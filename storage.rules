@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Gravações de vídeo das assembleias: qualquer membro autenticado do
+    // condomínio pode ler (download/visualizar); apenas usuários autenticados
+    // podem enviar (a validação fina de participantes da sala é feita pelo
+    // cliente via Security Rules do Firestore).
+    match /tenants/{tenantId}/salasVideo/{salaId}/gravacoes/{arquivoId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.size < 500 * 1024 * 1024 // limite de 500MB por arquivo
+        && request.resource.contentType.matches('video/.*');
+      allow update, delete: if false; // gravações são imutáveis
+    }
+
+    // Demais arquivos de tenants (fotos de perfil, documentos etc., se houver).
+    match /tenants/{tenantId}/{caminho=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
