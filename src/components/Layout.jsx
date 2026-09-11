@@ -9,7 +9,8 @@ const ROLE_LABEL = {
   portaria: 'Portaria',
   sindico: 'Síndico / Administração',
   morador: 'Morador',
-  zelador: 'Zelador'
+  zelador: 'Zelador',
+  conselheiro: 'Conselheiro'
 }
 
 export default function Layout() {

@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { formatDateTime, formatDate, formatCurrency, getMonthKey } from '../../utils/storage.js'
 import { AvisoEncomendaWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
 import { OrcamentoModal } from '../orcamento/Orcamento.jsx'
+import { somaAprovacoesMes, aprovacoesDoMes } from '../orcamento/orcamentoUtils.js'
 
 const HOJE = new Date()
   .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
@@ -374,7 +375,7 @@ function UltimosComunicados({ periodoMes }) {
 
 export default function Painel() {
   const { userProfile } = useAuth()
-  const { visitantes, encomendas, moradores, comunicados, despesas, orcamentos } = useApp()
+  const { visitantes, encomendas, moradores, comunicados, despesas, orcamentos, aprovacoes } = useApp()
   const somenteLeituraDespesas = userProfile?.role === 'morador'
   const mesAtual = new Date().toISOString().slice(0, 7)
   const [periodoMes, setPeriodoMes] = useState(mesAtual)
@@ -422,9 +423,9 @@ export default function Painel() {
   const dadosOrcamento = MESES_ORCAMENTO.map((nome, index) => {
     const mes = index + 1
     const chave = `${anoOrcamento}-${String(mes).padStart(2, '0')}`
-    const orcado = orcamentos
+    const itensOrcados = orcamentos
       .filter((item) => Number(item.ano) === anoOrcamento && Number(item.mes) === mes)
-      .reduce((total, item) => total + (Number(item.valor) || 0), 0)
+    const orcado = somaAprovacoesMes(itensOrcados, aprovacoesDoMes(aprovacoes, anoOrcamento, mes))
     const realizado = despesas
       .filter((item) => getMonthKey(item.data || item.criadoEm) === chave)
       .reduce((total, item) => total + (Number(item.valor) || 0), 0)
@@ -560,7 +561,7 @@ export default function Painel() {
 
       {mesOrcamentoDetalhado && (() => {
         const item = dadosOrcamento.find((mes) => mes.mes === mesOrcamentoDetalhado)
-        return item ? <OrcamentoModal mes={item.mes} ano={anoOrcamento} orcado={item.orcado} despesas={item.gastos} onFechar={() => setMesOrcamentoDetalhado(null)} /> : null
+        return item ? <OrcamentoModal mes={item.mes} ano={anoOrcamento} orcado={item.orcado} despesas={item.gastos} orcamentosDoAno={orcamentos.filter((o) => Number(o.ano) === anoOrcamento)} aprovacoes={aprovacoes} onFechar={() => setMesOrcamentoDetalhado(null)} /> : null
       })()}
 
       <div className="grid-2" style={{ marginBottom: 24 }}>

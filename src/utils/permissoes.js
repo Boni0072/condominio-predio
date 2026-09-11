@@ -19,26 +19,37 @@ export const ACESSOS_POR_PERFIL = {
   // (notificações push e tema de cores).
   morador: ['painel', 'despesas', 'assembleias', 'mural', 'configuracoes'],
   // Zelador também acompanha o mural de avisos do condomínio.
-  zelador: ['painel', 'despesas', 'orcamento', 'assembleias', 'mural']
+  zelador: ['painel', 'despesas', 'orcamento', 'assembleias', 'mural'],
+  // Conselheiro acompanha e APROVA os orçamentos mensais (não edita valores).
+  conselheiro: ['painel', 'orcamento', 'assembleias', 'mural', 'configuracoes']
 }
 
-// Acessos que o sistema garante conforme o perfil, mesmo para usuários cuja
-// lista foi salva no Firestore antes de a página existir nos padrões — sem
-// esse backfill, o menu da novidade não aparece para quem já tinha cadastro.
-const ACESSOS_ESSENCIAIS = ['assembleias', 'configuracoes', 'mural']
-
+// A lista salva no cadastro do usuário é a fonte da verdade: o que o síndico
+// marcou em "Acesso às páginas" (inclusive para o Conselheiro) é respeitado.
+// Para contas antigas (sem lista salva ou sem a página incluída), o padrão do
+// perfil é completado automaticamente — sem isso o conselheiro nunca veria a
+// página "Orçamento anual" nem chegaria ao botão "Firmar e guardar aprovação".
 export function acessosDoUsuario(usuario) {
   const padrao = ACESSOS_POR_PERFIL[usuario?.role] || []
+  let acessos
   if (Array.isArray(usuario?.acessos)) {
     // Lista salva vazia = cadastro quebrado/antigo: usa os padrões do perfil.
-    if (usuario.acessos.length === 0) return [...padrao]
-    const acessosAtualizados = new Set(usuario.acessos)
-    ACESSOS_ESSENCIAIS.forEach((acesso) => {
-      if (padrao.includes(acesso)) acessosAtualizados.add(acesso)
-    })
-    return Array.from(acessosAtualizados)
+    if (usuario.acessos.length === 0) {
+      acessos = [...padrao]
+    } else {
+      const completos = new Set(usuario.acessos)
+      padrao.forEach((acesso) => completos.add(acesso))
+      acessos = Array.from(completos)
+    }
+  } else {
+    acessos = [...padrao]
   }
-  return padrao
+  // Morador convidado por um conselheiro/síndico a aprovar o orçamento também
+  // ganha acesso à página do orçamento anual.
+  if (usuario?.role === 'morador' && usuario?.convidadoParaAprovar && !acessos.includes('orcamento')) {
+    acessos = [...acessos, 'orcamento']
+  }
+  return acessos
 }
 
 export function temAcesso(usuario, pagina) {

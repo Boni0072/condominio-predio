@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react'
 import { useApp } from '../../context/AppContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { formatDate, getMonthKey } from '../../utils/storage.js'
+import { somaAprovacoesMes, aprovacoesDoMes } from '../orcamento/orcamentoUtils.js'
 
 const CATEGORIAS = [
   { id: 'manutencao', label: 'Manutenção', icon: '🔧' },
@@ -55,7 +56,7 @@ function arquivoParaDataUrl(file) {
 }
 
 function DespesaForm({ editando, onConcluir }) {
-  const { registrarDespesa, atualizarDespesa } = useApp()
+  const { registrarDespesa, atualizarDespesa, orcamentos } = useApp()
   const [form, setForm] = useState(editando || {
     descricao: '',
     valor: '',
@@ -73,11 +74,33 @@ function DespesaForm({ editando, onConcluir }) {
   })
   const [erro, setErro] = useState('')
   const [processando, setProcessando] = useState(false)
+  const [itemOrcamento, setItemOrcamento] = useState('')
   const inputRef = useRef(null)
 
   function handleChange(e) {
     const { name, value } = e.target
     setForm((f) => ({ ...f, [name]: value }))
+    if (name === 'categoria') setItemOrcamento('')
+  }
+
+  const itensOrcamento = orcamentos
+    .filter((orcamento) => orcamento.categoria === form.categoria && Array.isArray(orcamento.itens))
+    .flatMap((orcamento) => (orcamento.itens || []).map((item, indice) => ({
+      ...item,
+      key: `${orcamento.id}:${item.id || indice}`,
+      referencia: `${String(orcamento.mes).padStart(2, '0')}/${orcamento.ano}`
+    })))
+
+  function selecionarItemOrcamento(selecionado) {
+    setItemOrcamento(selecionado)
+    if (!selecionado) return
+    const item = itensOrcamento.find((i) => i.key === selecionado)
+    if (!item) return
+    setForm((f) => ({
+      ...f,
+      descricao: item.descricao,
+      valor: Number(item.valor) > 0 ? String(item.valor) : f.valor
+    }))
   }
 
   async function handleComprovante(e, campo) {
@@ -139,6 +162,19 @@ function DespesaForm({ editando, onConcluir }) {
           <select id="categoria" name="categoria" value={form.categoria} onChange={handleChange}>
             {CATEGORIAS.map((c) => (<option key={c.id} value={c.id}>{c.icon} {c.label}</option>))}
           </select>
+        </div>
+        <div className="field">
+          <label htmlFor="item-orcamento">Item do orçamento</label>
+          <select id="item-orcamento" value={itemOrcamento} onChange={(e) => selecionarItemOrcamento(e.target.value)}>
+            <option value="">— Selecionar item do orçamento —</option>
+            {itensOrcamento.length === 0 && <option disabled>Sem itens previstos para esta categoria</option>}
+            {itensOrcamento.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.referencia} · {item.descricao}{Number(item.valor) > 0 ? ` (R$ ${Number(item.valor).toFixed(2).replace('.', ',')})` : ''}
+              </option>
+            ))}
+          </select>
+          <p className="field-help">Itens previstos no orçamento desta categoria. Selecionar preenche a descrição e o valor estimado.</p>
         </div>
         <div className="field">
           <label htmlFor="tipo">Tipo</label>
@@ -204,8 +240,14 @@ function DespesaForm({ editando, onConcluir }) {
 }
 
 function DespesaItem({ despesa, onEditar, somenteLeitura }) {
-  const { removerDespesa } = useApp()
+  const { removerDespesa, orcamentos, aprovacoes } = useApp()
   const cat = CATEGORIAS.find((c) => c.id === despesa.categoria) || CATEGORIAS[CATEGORIAS.length - 1]
+  const orcamentoCategoria = orcamentos.find((o) => (
+    o.categoria === despesa.categoria && `${o.ano}-${String(o.mes).padStart(2, '0')}` === getMonthKey(despesa.data || despesa.criadoEm)
+  ))
+  const orcado = orcamentoCategoria ? somaAprovacoesMes([orcamentoCategoria], aprovacoesDoMes(aprovacoes, orcamentoCategoria.ano, orcamentoCategoria.mes)) : 0
+  const acimaDoOrcamento = (Number(despesa.valor) || 0) > orcado
+  const rotuloSituacao = `${acimaDoOrcamento ? 'Acima' : 'Abaixo'} do orçamento de ${cat.label} (${orcado.toFixed(2).replace('.', ',')})`
 
   return (
     <div className="despesa-item">
@@ -213,7 +255,19 @@ function DespesaItem({ despesa, onEditar, somenteLeitura }) {
       <div className="despesa-info">
         <div className="despesa-header">
           <strong>{despesa.descricao}</strong>
-          <span className="despesa-valor">R$ {despesa.valor.toFixed(2).replace('.', ',')}</span>
+          <span className="despesa-valor">
+            {orcado > 0 && (
+              <span
+                className={`despesa-seta${acimaDoOrcamento ? ' acima' : ' abaixo'}`}
+                role="img"
+                aria-label={rotuloSituacao}
+                title={rotuloSituacao}
+              >
+                {acimaDoOrcamento ? '▼' : '▲'}
+              </span>
+            )}
+            R$ {despesa.valor.toFixed(2).replace('.', ',')}
+          </span>
         </div>
         <div className="despesa-meta">
           <span className="badge badge-cat">{cat.label}</span>

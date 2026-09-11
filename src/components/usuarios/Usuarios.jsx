@@ -18,14 +18,16 @@ import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 const ROLES = [
   { id: 'sindico', label: 'Síndico / Administração', color: 'badge-brick' },
   { id: 'portaria', label: 'Portaria / Porteiro', color: 'badge-blue' },
-  { id: 'zelador', label: 'Zelador', color: 'badge-blue' }
+  { id: 'zelador', label: 'Zelador', color: 'badge-blue' },
+  { id: 'conselheiro', label: 'Conselheiro', color: 'badge-green' }
 ]
 
 // Perfis que o síndico cadastra em Gestão de usuários. Moradores criam a
 // própria conta pelo código do condomínio na tela de login.
 const PERFIS_FORM = [
   { id: 'portaria', label: 'Portaria / Porteiro' },
-  { id: 'zelador', label: 'Zelador' }
+  { id: 'zelador', label: 'Zelador' },
+  { id: 'conselheiro', label: 'Conselheiro (aprova orçamentos)' }
 ]
 
 const STATUS_LABELS = {
@@ -53,7 +55,7 @@ function dataExibicao(valor) {
 // Código sugerido de regras do Firestore para o síndico copiar
 function UsuarioForm({ editando, onConcluir, onSalvar }) {
   const { cadastrarUsuario } = useAuth()
-  const perfilInicial = editando?.role && ['portaria', 'zelador'].includes(editando.role) ? editando.role : 'portaria'
+  const perfilInicial = editando?.role && ['portaria', 'zelador', 'conselheiro'].includes(editando.role) ? editando.role : 'portaria'
   const [form, setForm] = useState({
     nome: '',
     email: '',
@@ -61,7 +63,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
     role: perfilInicial,
     unidade: '',
     whatsapp: '',
-    acessos: ACESSOS_POR_PERFIL.portaria
+    acessos: [...(ACESSOS_POR_PERFIL[perfilInicial] || ACESSOS_POR_PERFIL.portaria)]
   })
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
@@ -80,7 +82,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         acessos: editando.acessos || ACESSOS_POR_PERFIL[editando.role] || ACESSOS_POR_PERFIL.morador
       })
     } else {
-      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', acessos: ACESSOS_POR_PERFIL.portaria })
+      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', acessos: [...ACESSOS_POR_PERFIL.portaria] })
     }
     setErro('')
   }, [editando])
@@ -90,17 +92,24 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
     setForm((f) => ({
       ...f,
       [name]: value,
-      ...(name === 'role' ? { acessos: ACESSOS_POR_PERFIL[value] } : {})
+      ...(name === 'role' ? { acessos: [...(ACESSOS_POR_PERFIL[value] || [])] } : {})
     }))
   }
 
   function alternarAcesso(pagina) {
-    setForm((f) => ({
-      ...f,
-      acessos: f.acessos.includes(pagina)
-        ? f.acessos.filter((item) => item !== pagina)
-        : [...f.acessos, pagina]
-    }))
+    setForm((f) => {
+      const atuais = Array.isArray(f.acessos) ? f.acessos : []
+      return {
+        ...f,
+        acessos: atuais.includes(pagina)
+          ? atuais.filter((item) => item !== pagina)
+          : [...atuais, pagina]
+      }
+    })
+  }
+
+  function restaurarAcessosPadrao() {
+    setForm((f) => ({ ...f, acessos: [...(ACESSOS_POR_PERFIL[f.role] || [])] }))
   }
 
   async function handleSubmit(e) {
@@ -114,7 +123,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
       return setErro('WhatsApp inválido. Use DDD + número, ex.: (11) 98765-4321.')
     }
     if (!editando && form.senha.length < 6) return setErro('Senha mínima 6 caracteres.')
-    if (!form.acessos.length) return setErro('Selecione pelo menos uma página de acesso.')
+    if (!form.acessos?.length) return setErro('Selecione pelo menos uma página de acesso.')
     setCarregando(true)
     try {
       if (editando) {
@@ -132,7 +141,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
       }
       onConcluir()
       setAberto(false)
-      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', acessos: ACESSOS_POR_PERFIL.portaria })
+      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', acessos: [...ACESSOS_POR_PERFIL.portaria] })
     } catch (err) {
       setErro(err?.code === 'permission-denied'
         ? 'Sem permissão para cadastrar usuários. Publique as regras do arquivo firestore.rules no Firestore e tente novamente.'
@@ -192,7 +201,11 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         </div>
         <fieldset className="acessos-fieldset">
           <legend>Acesso às páginas</legend>
-          <p className="field-help">Selecione quais áreas este usuário poderá visualizar e usar.</p>
+          <p className="field-help">
+            {form.role === 'conselheiro'
+              ? 'Padrão do Conselheiro: Painel, Orçamento anual, Assembleias, Mural e Configurações. Marque ou desmarque conforme necessário.'
+              : 'Selecione quais áreas este usuário poderá visualizar e usar.'}
+          </p>
           <div className="acessos-grid">
             {PAGINAS_ACESSO.map((pagina) => (
               <label key={pagina.id} className="acesso-opcao">
@@ -205,6 +218,9 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
               </label>
             ))}
           </div>
+          <button type="button" className="btn btn-ghost btn-small" onClick={restaurarAcessosPadrao} style={{ marginTop: 8 }}>
+            Restaurar padrão do perfil
+          </button>
         </fieldset>
         <button type="submit" className="btn btn-brass btn-block" disabled={carregando}>
           {carregando ? (editando ? 'Salvando...' : 'Cadastrando...') : (editando ? 'Salvar alterações' : 'Cadastrar usuário')}

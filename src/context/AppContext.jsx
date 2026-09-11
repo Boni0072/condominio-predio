@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext.jsx'
 import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase/config.js'
 import { load, save, uid, nowISO } from '../utils/storage.js'
+import { ACESSOS_POR_PERFIL } from '../utils/permissoes.js'
 import { notificarNovaEncomenda, notificarNovoVisitante, solicitarPermissao } from '../utils/notificacao.js'
 import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, ativarListenerFrente, enviarPushTenant } from '../utils/push.js'
 
@@ -81,6 +82,7 @@ export function AppProvider({ children }) {
   const condominioId = userProfile?.condominioId || 'local'
   const firestoreAtivo = Boolean(firebaseOK && userProfile?.condominioId)
   const [mostrarModalNotificacao, setMostrarModalNotificacao] = useState(false)
+  const [erroAprovacao, setErroAprovacao] = useState('')
 
   // Mostra modal de permissão após login (se permissão ainda não foi decidida)
   useEffect(() => {
@@ -142,6 +144,7 @@ export function AppProvider({ children }) {
   const [moradores, setMoradores] = useState(() => load(`${condominioId}_moradores`, SEED_MORADORES))
   const [despesas, setDespesas] = useState(() => load(`${condominioId}_despesas`, []))
   const [orcamentos, setOrcamentos] = useState(() => load(`${condominioId}_orcamentos`, []))
+  const [aprovacoes, setAprovacoes] = useState(() => load(`${condominioId}_aprovacoes`, []))
   const [usuarios, setUsuarios] = useState([])
   const [assembleias, setAssembleias] = useState([])
   const [votacoes, setVotacoes] = useState([])
@@ -164,6 +167,7 @@ export function AppProvider({ children }) {
     setMoradores([])
     setDespesas([])
     setOrcamentos([])
+    setAprovacoes([])
     setUsuarios([])
     setAssembleias([])
     setVotacoes([])
@@ -175,14 +179,46 @@ export function AppProvider({ children }) {
       ['moradores', setMoradores],
       ['despesas', setDespesas],
       ['orcamentos', setOrcamentos]
+      , ['aprovacoes', setAprovacoes]
       , ['assembleias', setAssembleias]
       , ['votacoes', setVotacoes]
       , ['votos', setVotos]
     ]
     const listeners = colecoes.map(([nome, setDados]) => onSnapshot(
       collection(db, 'tenants', condominioId, nome),
-      (snapshot) => setDados(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
-      (error) => console.error(`Erro ao sincronizar ${nome}:`, error)
+      (snapshot) => {
+        const remoto = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+        if (nome === 'aprovacoes') {
+          // Mescla pendências locais ainda não refletidas no remoto: sem isso,
+          // a aprovação feita neste dispositivo some da tela quando o snapshot
+          // chega antes do servidor confirmar a nossa gravação.
+          let local = null
+          try {
+            const bruto = localStorage.getItem(`condo_${condominioId}_${nome}`)
+            local = bruto ? JSON.parse(bruto) : null
+          } catch {
+            local = null
+          }
+          if (Array.isArray(local) && local.length > 0) {
+            const idsRemotos = new Set(remoto.map((item) => item.id))
+            const pendentes = local.filter(
+              (item) => item && item.id && !idsRemotos.has(item.id)
+            )
+            setDados(pendentes.length > 0 ? [...pendentes, ...remoto] : remoto)
+          } else {
+            setDados(remoto)
+          }
+        } else {
+          setDados(remoto)
+        }
+        if (nome === 'aprovacoes') setErroAprovacao('')
+      },
+      (error) => {
+        console.error(`Erro ao sincronizar ${nome}:`, error)
+        if (nome === 'aprovacoes' && String(error?.code || '').includes('permission')) {
+          setErroAprovacao('Sem permissão para ler as aprovações. Publique as regras atualizadas (Firestore → Rules → Publish) para que as aprovações dos conselheiros apareçam.')
+        }
+      }
     ))
     const usuariosQuery = query(collection(db, 'users'), where('condominioId', '==', condominioId))
     const unsubscribeUsuarios = onSnapshot(usuariosQuery, (snapshot) => {
@@ -194,10 +230,18 @@ export function AppProvider({ children }) {
     }
   }, [condominioId, firestoreAtivo])
 
-  function salvarDocumento(nome, item) {
+  function salvarDocumento(nome, item, onErro) {
     if (!firestoreAtivo) return
     setDoc(doc(db, 'tenants', condominioId, nome, item.id), item).catch((error) => {
       console.error(`Erro ao salvar ${nome}:`, error)
+      if (nome === 'aprovacoes') {
+        setErroAprovacao(
+          String(error?.code || '').includes('permission')
+            ? 'A aprovação foi registrada neste dispositivo, mas o Firestore recusou a gravação. Publique as regras atualizadas (Firestore → Rules → Publish) para que os outros usuários vejam a aprovação.'
+            : `Falha ao sincronizar a aprovação: ${error?.message || error}`
+        )
+      }
+      if (typeof onErro === 'function') onErro(error)
     })
   }
 
@@ -208,10 +252,18 @@ export function AppProvider({ children }) {
     })
   }
 
-  function removerDocumento(nome, id) {
+  function removerDocumento(nome, id, onErro) {
     if (!firestoreAtivo) return
     deleteDoc(doc(db, 'tenants', condominioId, nome, id)).catch((error) => {
       console.error(`Erro ao remover ${nome}:`, error)
+      if (nome === 'aprovacoes') {
+        setErroAprovacao(
+          String(error?.code || '').includes('permission')
+            ? 'O Firestore recusou a remoção da aprovação. Publique as regras atualizadas (Firestore → Rules → Publish). A lista será restaurada na próxima sincronização.'
+            : `Falha ao sincronizar a remoção da aprovação: ${error?.message || error}`
+        )
+      }
+      if (typeof onErro === 'function') onErro(error)
     })
   }
 
@@ -428,7 +480,7 @@ export function AppProvider({ children }) {
         alterado = itens.find((item) => item.ano === dados.ano && item.mes === dados.mes && item.categoria === dados.categoria)
         const atualizados = itens.map((item) => (
           item.ano === dados.ano && item.mes === dados.mes && item.categoria === dados.categoria
-            ? { ...item, valor: dados.valor, atualizadoEm: nowISO() }
+            ? { ...item, valor: dados.valor, itens: Array.isArray(dados.itens) ? dados.itens : (item.itens || []), atualizadoEm: nowISO() }
             : item
         ))
         save(`${condominioId}_orcamentos`, atualizados)
@@ -451,6 +503,84 @@ export function AppProvider({ children }) {
       return atualizado
     })
     removerDocumento('orcamentos', id)
+  }
+
+  // ---- Aprovação de orçamentos (Conselheiros e convidados) ----
+  function podeAprovarOrcamento() {
+    const role = userProfile?.role
+    if (['sindico', 'zelador', 'conselheiro'].includes(role)) return true
+    // Moradores convidados por um conselheiro/síndico também podem aprovar
+    if (role === 'morador') {
+      if (userProfile?.convidadoParaAprovar === true) return true
+      return usuarios.some((u) => (u.uid === userProfile?.uid || u.email === userProfile?.email) && u.convidadoParaAprovar === true)
+    }
+    return false
+  }
+
+  function podeConvidarAprovadores() {
+    return ['sindico', 'conselheiro'].includes(userProfile?.role)
+  }
+
+  function aprovarOrcamento(decididos, ano, mes, assinatura) {
+    if (!podeAprovarOrcamento() || !Array.isArray(decididos) || decididos.length === 0) return
+    const chaveUsuario = userProfile?.uid || userProfile?.email || 'local'
+    const agora = nowISO()
+    const itensNovos = decididos.map((decisao) => {
+      const orcamentoId = decisao.orcamentoId || ''
+      const itemId = decisao.itemId || 'item'
+      return {
+        id: `${ano}-${String(mes).padStart(2, '0')}-${orcamentoId}-${itemId}-${chaveUsuario}`,
+        orcamentoId,
+        itemId,
+        itemDescricao: decisao.descricao || '',
+        itemValor: Number(decisao.valor) || 0,
+        ano: Number(ano),
+        mes: Number(mes),
+        aprovado: decisao.aprovado !== false,
+        usuarioId: userProfile?.uid || null,
+        usuarioEmail: userProfile?.email || '',
+        usuarioNome: userProfile?.nome || userProfile?.email || 'Usuário',
+        usuarioRole: userProfile?.role || '',
+        assinatura: assinatura || '',
+        criadoEm: agora
+      }
+    })
+    setAprovacoes((lista) => {
+      const semAntigos = lista.filter((a) => !itensNovos.some((n) => n.id === a.id))
+      const atualizado = [...itensNovos, ...semAntigos]
+      save(`${condominioId}_aprovacoes`, atualizado)
+      return atualizado
+    })
+    if (firestoreAtivo) {
+      itensNovos.forEach((item) => salvarDocumento('aprovacoes', item))
+    }
+  }
+
+  function removerAprovacaoOrcamento(orcamentoId, itemId, ano, mes) {
+    if (!podeAprovarOrcamento()) return
+    const chaveUsuario = userProfile?.uid || userProfile?.email || 'local'
+    const chaveItem = itemId || 'item'
+    const id = `${ano}-${String(mes).padStart(2, '0')}-${orcamentoId}-${chaveItem}-${chaveUsuario}`
+    setAprovacoes((lista) => {
+      const atualizado = lista.filter((a) => a.id !== id)
+      save(`${condominioId}_aprovacoes`, atualizado)
+      return atualizado
+    })
+    removerDocumento('aprovacoes', id)
+  }
+
+  async function alternarConviteAprovacao(usuarioAlvo) {
+    if (!podeConvidarAprovadores()) return
+    const convidado = !usuarioAlvo.convidadoParaAprovar
+    const acessosAtuais = Array.isArray(usuarioAlvo.acessos) ? usuarioAlvo.acessos : (ACESSOS_POR_PERFIL[usuarioAlvo.role] || [])
+    const novosAcessos = convidado
+      ? (acessosAtuais.includes('orcamento') ? acessosAtuais : [...acessosAtuais, 'orcamento'])
+      : acessosAtuais.filter((a) => a !== 'orcamento')
+    setUsuarios((lista) => lista.map((u) => (u.id === usuarioAlvo.id ? { ...u, convidadoParaAprovar: convidado, acessos: novosAcessos } : u)))
+    if (firestoreAtivo) {
+      await updateDoc(doc(db, 'users', usuarioAlvo.id), { convidadoParaAprovar: convidado, acessos: novosAcessos })
+    }
+    return convidado
   }
 
   function criarAssembleia(dados) {
@@ -517,6 +647,7 @@ export function AppProvider({ children }) {
     moradores, cadastrarMorador, atualizarMorador, removerMorador,
     despesas, registrarDespesa, atualizarDespesa, removerDespesa,
     orcamentos, salvarOrcamento, removerOrcamento,
+    aprovacoes, erroAprovacao, aprovarOrcamento, removerAprovacaoOrcamento, alternarConviteAprovacao, podeAprovarOrcamento, podeConvidarAprovadores,
     usuarios
     , assembleias, votacoes, votos, criarAssembleia, criarVotacao, encerrarAssembleia, encerrarVotacao, votar
   }

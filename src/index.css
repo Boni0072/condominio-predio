@@ -1795,6 +1795,45 @@ a {
   font-size: 19.5px;
 }
 
+.despesa-seta {
+  font-size: 13px;
+  margin-right: 6px;
+}
+
+.despesa-seta.acima {
+  color: #c0392b;
+}
+
+.despesa-seta.abaixo {
+  color: #2f855a;
+}
+
+/* Seta de evolução (pill) usada no modal de gastos e na lista de despesas */
+
+.despesa-seta-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 2px;
+}
+
+.despesa-seta-pill.acima {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+}
+
+.despesa-seta-pill.abaixo {
+  color: #2f855a;
+  background: rgba(47, 133, 90, 0.12);
+}
+
 .despesa-meta {
   display: flex;
   gap: 6px;
@@ -1977,7 +2016,39 @@ a {
 }
 
 .acesso-opcao input {
-  accent-color: var(--brass-dark);
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 2px solid var(--line, #c9c2b4);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+}
+
+.acesso-opcao input:checked {
+  background: var(--brass-dark);
+  border-color: var(--brass-dark);
+}
+
+.acesso-opcao input:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+
+.acesso-opcao input:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
 }
 
 .despesa-row {
@@ -2696,7 +2767,7 @@ a {
 }
 
 .orcamento-ano input {
-  width: 92px;
+  width: 138px;
 }
 
 .orcamento-layout {
@@ -2750,6 +2821,189 @@ a {
   color: var(--ink-soft);
   font-size: 15.6px;
   margin-top: 2px;
+}
+
+.orcamento-item-input {
+  display: flex;
+  gap: 8px;
+}
+
+.orcamento-item-input input {
+  flex: 1;
+  min-width: 0;
+}
+
+.orcamento-item-input .orcamento-item-valor {
+  flex: none;
+  width: 104px;
+}
+
+.orcamento-itens-previstos {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.orcamento-itens-previstos li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  padding: 6px 10px;
+  font-size: 15px;
+}
+
+.orcamento-itens-previstos li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.orcamento-itens-previstos li strong {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.orcamento-itens-total {
+  margin: 8px 0 0;
+  text-align: right;
+  font-size: 14.3px;
+  color: var(--ink-soft);
+}
+
+.orcamento-itens-total strong {
+  color: var(--ink);
+}
+
+.orcamento-item-remover {
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 17px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.orcamento-item-remover:hover {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+}
+
+.orcamento-item-lista {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 0 10px;
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 14.3px;
+}
+
+.orcamento-item-lista li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.orcamento-item-lista li strong {
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.orcamento-categorias {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.orcamento-categoria-grupo {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+
+.orcamento-categoria-cabecalho {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.orcamento-categoria-cabecalho:hover {
+  background: var(--brass-soft);
+}
+
+.orcamento-categoria-cabecalho:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+  background: var(--brass-soft);
+}
+
+.orcamento-categoria-seta {
+  width: 14px;
+  color: var(--ink-soft);
+}
+
+.orcamento-categoria-nome {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.orcamento-categoria-cabecalho small {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  white-space: nowrap;
+}
+
+.orcamento-categoria-total {
+  white-space: nowrap;
+}
+
+.orcamento-categoria-grupo .orcamento-itens {
+  margin-top: 0;
+  padding: 0 12px 8px;
+}
+
+.orcamento-item-acoes {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.orcamento-item-editando {
+  background: var(--brass-soft);
+  border-radius: var(--radius-s);
+}
+
+.orcamento-editando {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--brass);
+  border-radius: var(--radius-s);
+  background: var(--brass-soft);
+  font-size: 14.3px;
 }
 
 .orcamento-grafico-card {
@@ -3261,6 +3515,150 @@ a {
   margin-top: -7px;
 }
 
+button.orcamento-gasto {
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: background 0.15s ease;
+}
+
+button.orcamento-gasto:hover,
+button.orcamento-gasto:focus-visible {
+  background: var(--brass-soft);
+}
+
+button.orcamento-gasto:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* ---------- Modal de detalhe da despesa (orçamento) ---------- */
+
+.despesa-detalhe-modal {
+  max-width: 560px;
+}
+
+.despesa-detalhe-valor {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.despesa-detalhe-valor span {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+}
+
+.despesa-detalhe-valor strong {
+  font-size: 22px;
+}
+
+.despesa-detalhe-situacao {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: var(--paper);
+}
+
+.despesa-detalhe-situacao.acima {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.1);
+}
+
+.despesa-detalhe-situacao.dentro {
+  border-color: #2f855a;
+  background: rgba(47, 133, 90, 0.1);
+}
+
+.despesa-detalhe-situacao-icone {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.despesa-detalhe-situacao strong {
+  display: block;
+  font-size: 15px;
+}
+
+.despesa-detalhe-situacao div > span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+}
+
+.despesa-detalhe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+
+.despesa-detalhe-campo span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  margin-bottom: 2px;
+}
+
+.despesa-detalhe-campo strong {
+  font-weight: 600;
+}
+
+.despesa-detalhe-largo {
+  grid-column: 1 / -1;
+}
+
+.despesa-detalhe-obs {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+}
+
+.despesa-detalhe-obs span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+.despesa-detalhe-obs p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.despesa-detalhe-comprovantes {
+  margin-top: 14px;
+}
+
+.despesa-detalhe-comprovantes > span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
+
+@media (max-width: 560px) {
+  .despesa-detalhe-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1024px) {
   .orcamento-layout {
     grid-template-columns: 1fr;
@@ -3536,4 +3934,217 @@ a {
     padding: 30px 14px;
     font-size: 16.9px;
   }
+}
+
+/* ---------- Aprovação de orçamento (Conselheiros) ---------- */
+
+.orcamento-aprovacao,
+.orcamento-convites {
+  margin-bottom: 20px;
+}
+
+.orcamento-aprovacao-lista,
+.orcamento-convites-lista {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.orcamento-aprovacao-item,
+.orcamento-convite-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  padding: 8px 12px;
+  background: var(--paper);
+}
+
+.orcamento-aprovacao-item small {
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.orcamento-aprovacao-acoes {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.orcamento-convite-item span {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+}
+
+/* ---------- Aprovação por item previsto (Valores configurados) ---------- */
+
+/* Cabeçalho em 3 colunas: descrição | valor | decisão */
+.orcamento-item-lista-cabecalho {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: 12.8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-left: 10px;
+}
+
+.orcamento-item-lista-cabecalho .orcamento-item-lista-valor-titulo {
+  text-align: right;
+}
+
+.orcamento-item-lista-aprovacao > li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.orcamento-item-lista-aprovacao > li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.orcamento-item-lista-aprovacao > li > strong {
+  text-align: right;
+}
+
+.orcamento-item-lista-aprovacao .orcamento-aprovacion-opciones {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.orcamento-item-lista-aprovacao .orcamento-aprovacion-registros {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+  .orcamento-item-lista-aprovacao > li {
+    grid-template-columns: 1fr auto;
+  }
+  .orcamento-item-lista-aprovacao .orcamento-aprovacion-opciones {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+.orcamento-aprovacion-item {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.orcamento-aprovacion-item > .field-help {
+  margin: 0;
+}
+
+.orcamento-aprovacion-opciones {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.orcamento-aprovacion-select-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.orcamento-aprovacion-select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 10px;
+  font-size: 14.3px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 240px;
+}
+
+.orcamento-aprovacion-select.aprobar {
+  border-color: #2f855a;
+  background: rgba(47, 133, 90, 0.12);
+  color: #1f5437;
+}
+
+.orcamento-aprovacion-select.rechazar {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+  color: #8f2f24;
+}
+
+.orcamento-aprovacion-registros {
+  display: grid;
+  gap: 2px;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+}
+
+.orcamento-item-aprovacion-icones {
+  grid-column: 1 / -1;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+/* ---------- Bloco "Firmar aprovação" ---------- */
+
+.orcamento-firmar {
+  margin-bottom: 20px;
+}
+
+.orcamento-firmar-resumen {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  color: var(--ink-soft);
+  font-size: 14.3px;
+}
+
+.orcamento-firmar-acciones {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.orcamento-aprovado-banner {
+  border: 1px solid #2e7d46;
+  border-radius: var(--radius-s);
+  background: #e6f4ea;
+  color: #1d5c2e;
+  font-weight: 700;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+
+.orcamento-assinatura-thumb {
+  width: 52px;
+  height: 34px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: #ffffff;
+  cursor: zoom-in;
+}
+
+.orcamento-aprovacao-itens-firma {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 2px;
+  display: grid;
+  gap: 2px;
+  color: var(--ink-soft);
+  font-size: 13.5px;
 }
