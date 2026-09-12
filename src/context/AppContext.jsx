@@ -595,7 +595,7 @@ export function AppProvider({ children }) {
   }
 
   function criarVotacao(dados) {
-    if (!['sindico', 'zelador'].includes(userProfile?.role)) return
+    if (!['sindico', 'zelador'].includes(userProfile?.role)) return null
     const item = { id: uid(), ...dados, criadoEm: nowISO(), encerrada: false }
     setVotacoes((lista) => {
       const atualizado = [item, ...lista]
@@ -603,6 +603,8 @@ export function AppProvider({ children }) {
       return atualizado
     })
     salvarDocumento('votacoes', item)
+    // Retorna o id para a tela abrir o card da pesquisa recém-criada.
+    return item.id
   }
 
   function encerrarAssembleia(id) {
@@ -628,8 +630,27 @@ export function AppProvider({ children }) {
 
   function votar(votacaoId, opcao) {
     if (!userProfile?.uid) return
+    // Votação encerrada não aceita voto novo nem alteração de voto (a regra do
+    // Firestore também bloqueia no servidor; aqui é defesa extra na UI).
+    const votacao = votacoes.find((item) => item.id === votacaoId)
+    if (votacao?.encerrada) return
     const existente = votos.find((voto) => voto.votacaoId === votacaoId && voto.usuarioId === userProfile.uid)
-    if (existente) return
+    if (existente && existente.opcao === opcao) return
+    if (existente) {
+      // Editar o voto: permitido até a votação ser encerrada. Mantém a data do
+      // voto original (criadoEm) e registra quando foi alterado (editadoEm),
+      // preservando a auditoria no registro individual. O id determinístico
+      // (votacaoId_uid) mantém o mesmo documento no Firestore (updateDoc).
+      const editadoEm = nowISO()
+      const votoEditado = { ...existente, opcao, editadoEm }
+      setVotos((lista) => {
+        const atualizado = lista.map((voto) => (voto.id === existente.id ? votoEditado : voto))
+        save(`${condominioId}_votos`, atualizado)
+        return atualizado
+      })
+      atualizarDocumento('votos', existente.id, { opcao, editadoEm })
+      return
+    }
     const item = { id: `${votacaoId}_${userProfile.uid}`, votacaoId, usuarioId: userProfile.uid, usuarioNome: userProfile.nome || userProfile.email, assinatura: userProfile.nome || userProfile.email, opcao, criadoEm: nowISO() }
     setVotos((lista) => {
       const atualizado = [...lista, item]

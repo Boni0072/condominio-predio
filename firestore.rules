@@ -64,12 +64,22 @@ service cloud.firestore {
       allow delete: if eMaster() || pertenceAoCondominio(tenantId);
     }
 
+    // Voto da pesquisa: um por morador (id = votacaoId_uid). O autor pode
+    // EDITAR o próprio voto (trocar a opção) até a votação ser encerrada — a
+    // regra consulta a votação (get) e nega a alteração se ela já estiver
+    // encerrada. O documento continua amarrado ao autor (usuarioId e id não
+    // mudam) e a exclusão segue exclusiva do master.
     match /tenants/{tenantId}/votos/{votoId} {
       allow read: if pertenceAoCondominio(tenantId);
       allow create: if pertenceAoCondominio(tenantId)
         && request.resource.data.usuarioId == request.auth.uid
         && request.resource.data.id == votoId;
-      allow update, delete: if eMaster();
+      allow update: if pertenceAoCondominio(tenantId)
+        && resource.data.usuarioId == request.auth.uid
+        && request.resource.data.usuarioId == request.auth.uid
+        && request.resource.data.id == votoId
+        && !get(/databases/$(database)/documents/tenants/$(tenantId)/votacoes/$(resource.data.votacaoId)).data.encerrada;
+      allow delete: if eMaster();
     }
 
     // Sala de vídeo das assembleias (WebRTC mesh com o Firestore como

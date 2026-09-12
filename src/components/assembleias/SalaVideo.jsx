@@ -88,27 +88,45 @@ function apagarSinaisDoParticipante(tenantId, salaId, uidLocal) {
   return Promise.all([apagarPor('para'), apagarPor('de')])
 }
 
-function VideoItem({ stream, nome, papel, unidade, proprio, microfone, camera, temVideo }) {
+function VideoItem({ stream, nome, papel, unidade, proprio, microfone, camera, temVideo, estadoRemoto }) {
   const videoRef = useRef(null)
 
   useEffect(() => {
     const elemento = videoRef.current
     if (!elemento) return
-    if (elemento.srcObject !== (stream || null)) elemento.srcObject = stream || null
+    // 🔁 Reatribui o stream repetidamente quando muda (ex.: novo ICE, nova
+    // sessão de rastreamento) — evita que o <video> fique “preso” em um stream
+    // vazio quando a conexão é recriada internamente pelo WebRTC.
+    elemento.srcObject = stream || null
     if (proprio) elemento.muted = true
+    else elemento.muted = false
   }, [stream, proprio])
 
-  const mostraVideo = Boolean(stream) && temVideo !== false && camera !== false
+  // Se o stream veio, mas os rastreamentos de vídeo ainda não foram entregues
+  // pelo handshake do WebRTC (situacao temporaria), deixamos o player ativo e o
+  // avatar de reserva preparado para a troca.
+  const streamTemVideo = stream && stream.getVideoTracks().length > 0
+  const mostraVideo = streamTemVideo && temVideo !== false && camera !== false
+
+  const problemaRemoto =
+    estadoRemoto && typeof estadoRemoto.conexao === 'string' && ['failed', 'closed'].includes(estadoRemoto.conexao)
 
   return (
     <div className={'assembleia-video-item' + (mostraVideo ? '' : ' sem-camera')}>
       {mostraVideo
-        ? <video ref={videoRef} autoPlay playsInline />
-        : <div className="assembleia-video-avatar">{iniciaisDoNome(nome)}</div>}
+        ? <video ref={videoRef} autoPlay playsInline muted={proprio} />
+        : problemaRemoto
+          ? <div className="assembleia-video-ausente">
+              <span className="assembleia-video-ausente-icone">⚠</span>
+              <span className="assembleia-video-ausente-msg">Conexão de vídeo indisponível</span>
+            </div>
+          : <div className="assembleia-video-avatar">{iniciaisDoNome(nome)}</div>}
       <div className="assembleia-video-info">
         <span className="assembleia-video-nome">{nome}{proprio ? ' (você)' : ''}</span>
         <small className="assembleia-video-papel">{papel}{unidade ? ` · ${unidade}` : ''}</small>
       </div>
+      {proprio && stream && stream.getVideoTracks().length === 0 && <span className="assembleia-video-estado">Sem câmera</span>}
+      {proprio && stream && stream.getAudioTracks().length === 0 && <span className="assembleia-video-estado">Sem microfone</span>}
       {microfone === false && <span className="assembleia-video-estado">Microfone desativado</span>}
       {camera === false && <span className="assembleia-video-estado assembleia-video-estado-camera">Câmera desligada</span>}
     </div>
@@ -120,12 +138,27 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
   const [erro, setErro] = useState('')
   const [participantes, setParticipantes] = useState([])
   const [remotos, setRemotos] = useState({}) // uid -> MediaStream
+  // Diagnóstico de conexão remota por participante, para mostrar na interface
+  // quando a câmera não aparece (ex.: ICE falhando por falta de TURN).
+  const [remotoEstado, setRemotoEstado] = useState({}) // uid -> { conexao, rastreamento }
+  const remotoEstadoRef = useRef({})
   const [streamLocal, setStreamLocal] = useState(null)
   const [micAtivo, setMicAtivo] = useState(true)
   const [cameraAtiva, setCameraAtiva] = useState(true)
   const [temCamera, setTemCamera] = useState(true)
   const [mensagens, setMensagens] = useState([])
   const [novaMensagem, setNovaMensagem] = useState('')
+  // Chat da assembleia inicia recolhido; volta a recolher ao trocar de
+  // assembleia. O listener continua ativo mesmo recolhido — o contador do
+  // cabeçalho continua subindo em tempo real.
+  const [chatAberto, setChatAberto] = useState(false)
+  // Espelho do estado acima para o callback do listener (que é estável e não
+  // depende do estado, para não re-registrar a cada abertura do chat).
+  const chatAbertoRef = useRef(false)
+  // Erro do listener do chat exibido na interface — antes falhas (ex.: regras
+  // do Firestore bloqueando a leitura) ficavam só no console e os moradores
+  // não entendiam por que não viam as mensagens dos demais.
+  const [erroChatListener, setErroChatListener] = useState('')
   const [gravacoes, setGravacoes] = useState([])
   const [gravando, setGravando] = useState(false)
 
@@ -267,17 +300,28 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
 
   // Sai da sala: para faixas de mídia, fecha conexões, remove listeners e
   // limpa presença/sinais no Firestore (melhor esforço, sem bloquear a UI).
-  // IMPORTANTE: a gravação deve ser finalizada ANTES de limpar o contexto,
-  // senão o arquivo não consegue ser salvo (perde a referência da sala).
+  // IMPORTANTE: o contexto/sala é capturado e limpo ANTES de qualquer await —
+  // ao trocar de assembleia, o cleanup antigo e o novo registro do chat rodam
+  // no MESMO flush síncrono do React, e um await antes da limpeza deixaria o
+  // novo listener ler a sala antiga dos refs (conversas se misturando). A
+  // gravação não perde referência: ela usa o próprio snapshot capturado em
+  // iniciarGravacao (contextoGravacaoRef), independente destes refs.
   const desconectarTudo = useCallback(async () => {
     naSalaRef.current = false
 
-    // 1. Para a gravação PRIMEIRO (antes de limpar qualquer referência)
+    // 0. Captura o contexto/sala e limpa os refs IMEDIATAMENTE (antes de
+    // qualquer await) — ver comentário acima.
+    const contexto = contextoSalaRef.current
+    const sala = salaAtivaRef.current
+    contextoSalaRef.current = null
+    salaAtivaRef.current = null
+
+    // 1. Para a gravação (o onstop salva com o snapshot próprio).
     if (gravacaoIniciadaRef.current) {
       await pararGravacao()
     }
 
-    // 2. Agora sim, limpa listeners, conexões e mídia
+    // 2. Limpa listeners, conexões e mídia
     pararListenersRef.current.forEach((parar) => { try { parar() } catch { /* ignora */ } })
     pararListenersRef.current = []
     intervalosRef.current.forEach((intervalo) => clearInterval(intervalo))
@@ -294,11 +338,7 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
       streamLocalRef.current = null
     }
 
-    // 3. Limpa presença e sinais no Firestore
-    const contexto = contextoSalaRef.current
-    const sala = salaAtivaRef.current
-    contextoSalaRef.current = null
-    salaAtivaRef.current = null
+    // 3. Limpa presença e sinais no Firestore com o snapshot capturado acima.
     if (contexto && sala) {
       deleteDoc(doc(db, 'tenants', contexto.condominioId, 'salasVideo', sala, 'participantes', contexto.uid)).catch(() => {})
       apagarSinaisDoParticipante(contexto.condominioId, sala, contexto.uid)
@@ -326,6 +366,101 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
     if (!ativo && naSalaRef.current) desconectarTudo()
   }, [ativo, desconectarTudo])
 
+  // Chat: listener em tempo real sobre as ÚLTIMAS LIMITE_MENSAGENS_CHAT
+  // mensagens da sala. A janela é buscada em ordem DESC (mais recentes
+  // primeiro) e reordenada no cliente (mais antigas primeiro): buscar em ASC
+  // com limit traria as mensagens mais ANTIGAS — a partir de 200 mensagens na
+  // sala, nenhuma mensagem nova entraria na janela e ninguém receberia as
+  // novas. useCallback mantém a identidade da função estável entre renders,
+  // para o useEffect abaixo NÃO cancelar/recriar o listener a cada digitação
+  // ou mudança de estado (o que atrasava a entrega das mensagens a todos).
+  const iniciarChat = useCallback(() => {
+    // O chat pertence SEMPRE à assembleia aberta (assembleiaId) — nunca à
+    // sala de vídeo ativa (salaAtivaRef): quem entrou na sala de uma reunião
+    // e trocou para outra teria a sala antiga presa no ref, e as conversas de
+    // reuniões diferentes se misturariam. O useEffect abaixo re-registra o
+    // listener a cada troca de assembleia, então a prop é exatamente a
+    // reunião cujo chat deve ser exibido aqui.
+    if (!temContexto || !assembleiaId) return () => {}
+    const contexto = { condominioId, uid: meuUid }
+    const sala = assembleiaId
+
+    // Histórico persistido (diferente da sinalização, as mensagens não são
+    // apagadas): onSnapshot entrega cada mensagem nova a todos os clientes
+    // conectados, instantaneamente. primeiraFoto marca o snapshot inicial de
+    // cada assinatura: ele apenas restaura o histórico — só mensagens que
+    // CHEGAM depois abrem o chat automaticamente.
+    let primeiraFoto = true
+    const parar = onSnapshot(
+      query(
+        collection(db, 'tenants', contexto.condominioId, 'salasVideo', sala, 'mensagens'),
+        orderBy('criadoEm', 'desc'),
+        limit(LIMITE_MENSAGENS_CHAT)
+      ),
+      (foto) => {
+        // Mensagens que chegam com o chat recolhido abrem o chat
+        // automaticamente, para que ninguém — inclusive quem não entrou na
+        // sala de vídeo — perca a conversa da assembleia.
+        const adicionadas = primeiraFoto ? 0 : foto.docChanges().filter((mudanca) => mudanca.type === 'added').length
+        primeiraFoto = false
+        if (adicionadas > 0 && !chatAbertoRef.current) {
+          chatAbertoRef.current = true
+          setChatAberto(true)
+          rolamentoNoFimRef.current = true
+        }
+        const lista = foto.docs
+          .map((documento) => ({ id: documento.id, ...documento.data() }))
+          .sort((a, b) => {
+            // Mensagens cujo serverTimestamp ainda não foi confirmado chegam
+            // com criadoEm null: ordenam sempre no fim (como as mais
+            // recentes), então a mensagem nova já aparece no lugar certo e
+            // não "pula" de posição quando o servidor confirma a hora.
+            const aMs = typeof a.criadoEm?.toMillis === 'function' ? a.criadoEm.toMillis() : Number.POSITIVE_INFINITY
+            const bMs = typeof b.criadoEm?.toMillis === 'function' ? b.criadoEm.toMillis() : Number.POSITIVE_INFINITY
+            return aMs - bMs
+          })
+        setErroChatListener('')
+        mensagensRef.current = lista
+        setMensagens(lista)
+      },
+      (erroChat) => {
+        // Falha visível na interface: se as regras do Firestore bloquearem a
+        // leitura (ou houver qualquer erro), o participante entende na hora
+        // por que não está vendo as mensagens dos demais.
+        console.warn('[SalaVideo] Falha no listener do chat:', erroChat)
+        setErroChatListener(erroChat?.code === 'permission-denied'
+          ? 'Sem permissão para carregar as mensagens do chat. Publique as regras do Firestore atualizadas (Configurações → Regras do Firebase) e recarregue a página.'
+          : 'Não foi possível carregar as mensagens em tempo real. Recarregue a página para tentar novamente.')
+      }
+    )
+    return parar
+  }, [assembleiaId, condominioId, meuUid, temContexto])
+
+  // Gravações: mesmo raciocínio do chat — identidade estável para o listener
+  // não ser recriado a cada render.
+  const iniciarListagemGravacoes = useCallback(() => {
+    // Mesma regra do chat: a lista de gravações pertence à assembleia aberta
+    // (assembleiaId) — nunca a uma sala antiga presa no ref, senão gravações
+    // de reuniões diferentes se misturariam na listagem.
+    if (!temContexto || !assembleiaId) return () => {}
+    const contexto = { condominioId, uid: meuUid }
+    const sala = assembleiaId
+
+    const parar = onSnapshot(
+      query(
+        collection(db, 'tenants', contexto.condominioId, 'salasVideo', sala, 'gravacoes'),
+        orderBy('criadoEm', 'desc'),
+        limit(50)
+      ),
+      (foto) => {
+        const lista = foto.docs.map((documento) => ({ id: documento.id, ...documento.data() }))
+        setGravacoes(lista)
+      },
+      (erroGravacoes) => console.warn('[SalaVideo] Falha no listener de gravações:', erroGravacoes)
+    )
+    return parar
+  }, [assembleiaId, condominioId, meuUid, temContexto])
+
   // Chat: o listener começa assim que há contexto (antes mesmo de entrar na
   // chamada de vídeo) e encerra ao desmontar ou trocar de assembleia. Assim,
   // quem está só acompanhando por texto também participa.
@@ -344,10 +479,17 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
 
   // Rolagem automática para a mensagem mais recente, mas apenas quando o
   // usuário já está no fundo da lista (evita puxar o scroll enquanto a pessoa
-  // lê o histórico mais acima).
+  // lê o histórico mais acima). chatAberto nas deps: ao expandir o chat o
+  // container é remontado, e a rolagem leva direto à mensagem mais recente.
   useEffect(() => {
     if (rolamentoNoFimRef.current) rolarParaFim()
-  }, [mensagens])
+  }, [mensagens, chatAberto])
+
+  // Trocar de assembleia recolhe o chat de volta ao estado inicial.
+  useEffect(() => {
+    chatAbertoRef.current = false
+    setChatAberto(false)
+  }, [assembleiaId])
 
   // Lista de gravações: visível antes e durante a chamada, para que o
   // histórico de vídeos fique acessível mesmo após encerrar a assembleia.
@@ -442,6 +584,10 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
       if (!streamRemoto) return
       remotosRef.current[outroUid] = streamRemoto
       setRemotos((atual) => (atual[outroUid] === streamRemoto ? atual : { ...atual, [outroUid]: streamRemoto }))
+      // Marcamos que esse participante está entregando tracks (vídeo/áudio).
+      remotoEstadoRef.current[outroUid] = remotoEstadoRef.current[outroUid] || {}
+      remotoEstadoRef.current[outroUid].rastreamento = true
+      setRemotoEstado((atual) => ({ ...atual, [outroUid]: remotoEstadoRef.current[outroUid] }))
     }
     pc.onnegotiationneeded = async () => {
       // Mesh sem colisão de ofertas ("glare"): em cada par, apenas o
@@ -457,6 +603,13 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
       }
     }
     pc.oniceconnectionstatechange = () => {
+      // Expomos o estado da conexão ICE para a interface, para que, quando a
+      // câmera não aparece, o participante veja aviso (ex.: ICE "failed" por
+      // falta de TURN ou problema de rede), em vez de só um player vazio.
+      remotoEstadoRef.current[outroUid] = remotoEstadoRef.current[outroUid] || {}
+      remotoEstadoRef.current[outroUid].conexao = pc.iceConnectionState
+      setRemotoEstado((atual) => ({ ...atual, [outroUid]: remotoEstadoRef.current[outroUid] }))
+
       if (pc.iceConnectionState !== 'failed' || !naSalaRef.current) return
       // Sem TURN, pares atrás de NAT restritivo podem falhar. O iniciador
       // reinicia o ICE (nova oferta pela mesma conexão); quem responde aguarda
@@ -582,50 +735,6 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
     return streamFinal
   }
 
-  function iniciarChat() {
-    const contexto = contextoSalaRef.current || (temContexto ? { condominioId, uid: meuUid } : null)
-    const sala = salaAtivaRef.current || assembleiaId
-    if (!contexto || !sala) return () => {}
-
-    // Histórico persistido (diferente da sinalização, as mensagens não são
-    // apagadas): últimas LIMITE_MENSAGENS_CHAT, ordenadas do mais antigo ao
-    // mais recente. onSnapshot mantém em tempo real.
-    const parar = onSnapshot(
-      query(
-        collection(db, 'tenants', contexto.condominioId, 'salasVideo', sala, 'mensagens'),
-        orderBy('criadoEm', 'asc'),
-        limit(LIMITE_MENSAGENS_CHAT)
-      ),
-      (foto) => {
-        const lista = foto.docs.map((documento) => ({ id: documento.id, ...documento.data() }))
-        mensagensRef.current = lista
-        setMensagens(lista)
-      },
-      (erroChat) => console.warn('[SalaVideo] Falha no listener do chat:', erroChat)
-    )
-    return parar
-  }
-
-  function iniciarListagemGravacoes() {
-    const contexto = contextoSalaRef.current || (temContexto ? { condominioId, uid: meuUid } : null)
-    const sala = salaAtivaRef.current || assembleiaId
-    if (!contexto || !sala) return () => {}
-
-    const parar = onSnapshot(
-      query(
-        collection(db, 'tenants', contexto.condominioId, 'salasVideo', sala, 'gravacoes'),
-        orderBy('criadoEm', 'desc'),
-        limit(50)
-      ),
-      (foto) => {
-        const lista = foto.docs.map((documento) => ({ id: documento.id, ...documento.data() }))
-        setGravacoes(lista)
-      },
-      (erroGravacoes) => console.warn('[SalaVideo] Falha no listener de gravações:', erroGravacoes)
-    )
-    return parar
-  }
-
   function formatarTamanho(tamanho) {
     if (!tamanho) return '0 B'
     if (tamanho < 1024) return `${tamanho} B`
@@ -648,9 +757,12 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
     if (evento?.preventDefault) evento.preventDefault()
     const texto = novaMensagem.trim()
     if (!texto) return
-    const contexto = contextoSalaRef.current || (temContexto ? { condominioId, uid: meuUid } : null)
-    const sala = salaAtivaRef.current || assembleiaId
-    if (!contexto || !sala) return
+    // Mesma regra do listener: a mensagem vai para o chat da assembleia
+    // aberta (assembleiaId), nunca para uma sala antiga presa no ref —
+    // cada reunião tem seu chat separado.
+    if (!temContexto || !assembleiaId || !meuUid) return
+    const contexto = { condominioId, uid: meuUid }
+    const sala = assembleiaId
 
     setNovaMensagem('')
     try {
@@ -665,6 +777,15 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
       console.warn('[SalaVideo] Falha ao enviar mensagem:', erroEnvio)
       setNovaMensagem(texto)
     }
+  }
+
+  // Alterna o chat aberto/recolhido. Ao abrir, marca que o usuário está "no
+  // fim" para a rolagem automática levar direto à mensagem mais recente.
+  function alternarChat() {
+    const proximo = !chatAberto
+    chatAbertoRef.current = proximo
+    setChatAberto(proximo)
+    if (proximo) rolamentoNoFimRef.current = true
   }
 
   function aoRolarChat() {
@@ -888,6 +1009,7 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
                 unidade={participante.unidade || ''}
                 microfone={participante.microfone}
                 camera={participante.camera}
+                estadoRemoto={remotoEstado[participante.id]}
               />
             ))}
           </div>
@@ -910,39 +1032,51 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
         <div className="assembleia-chat">
           <div className="assembleia-chat-header">
             <h4>Chat da assembleia</h4>
-            <span className="field-help">{mensagens.length} mensagen(s)</span>
+            <div className="assembleia-chat-acoes">
+              <span className="field-help">{mensagens.length} mensagen(s)</span>
+              <button type="button" className="btn btn-small btn-ghost" onClick={alternarChat} aria-expanded={chatAberto}>
+                {chatAberto ? 'Recolher' : 'Mostrar'}
+              </button>
+            </div>
           </div>
-          <div className="assembleia-chat-mensagens" ref={rolamentoRef} onScroll={aoRolarChat}>
-            {mensagens.length === 0 ? (
-              <p className="assembleia-chat-vazio">Nenhuma mensagem ainda. Diga "olá" para começar.</p>
-            ) : mensagens.map((mensagem) => {
-              const mensagemAdmin = ['sindico', 'zelador', 'master'].includes(mensagem.role)
-              const ehMinha = mensagem.uid === meuUid
-              return (
-                <div key={mensagem.id} className={'assembleia-mensagem' + (ehMinha ? ' assembleia-mensagem-propria' : '')}>
-                  <div className="assembleia-mensagem-topo">
-                    <span className={'assembleia-mensagem-autor' + (mensagemAdmin ? ' assembleia-mensagem-autor-admin' : '')}>
-                      {mensagem.nome || 'Participante'}
-                    </span>
-                    {mensagemAdmin && <span className="assembleia-mensagem-selo">Administração</span>}
-                    <span className="assembleia-mensagem-hora">{formatarHora(mensagem.criadoEm)}</span>
-                  </div>
-                  <p className="assembleia-mensagem-texto">{mensagem.texto}</p>
-                </div>
-              )
-            })}
-          </div>
-          {ativo && (
-            <form className="assembleia-chat-envio" onSubmit={enviarMensagem}>
-              <input
-                type="text"
-                placeholder={ehAdministrador ? 'Mensagem como administrador...' : 'Escreva uma mensagem...'}
-                value={novaMensagem}
-                onChange={(e) => setNovaMensagem(e.target.value)}
-                maxLength={500}
-              />
-              <button type="submit" className="btn btn-small btn-brass" disabled={!novaMensagem.trim()}>Enviar</button>
-            </form>
+          {erroChatListener && (
+            <p className="assembleia-chat-erro">{erroChatListener}</p>
+          )}
+          {chatAberto && (
+            <>
+              <div className="assembleia-chat-mensagens" ref={rolamentoRef} onScroll={aoRolarChat}>
+                {mensagens.length === 0 ? (
+                  <p className="assembleia-chat-vazio">Nenhuma mensagem ainda. Diga "olá" para começar.</p>
+                ) : mensagens.map((mensagem) => {
+                  const mensagemAdmin = ['sindico', 'zelador', 'master'].includes(mensagem.role)
+                  const ehMinha = mensagem.uid === meuUid
+                  return (
+                    <div key={mensagem.id} className={'assembleia-mensagem' + (ehMinha ? ' assembleia-mensagem-propria' : '')}>
+                      <div className="assembleia-mensagem-topo">
+                        <span className={'assembleia-mensagem-autor' + (mensagemAdmin ? ' assembleia-mensagem-autor-admin' : '')}>
+                          {mensagem.nome || 'Participante'}
+                        </span>
+                        {mensagemAdmin && <span className="assembleia-mensagem-selo">Administração</span>}
+                        <span className="assembleia-mensagem-hora">{mensagem.criadoEm ? formatarHora(mensagem.criadoEm) : (ehMinha ? 'enviando...' : '')}</span>
+                      </div>
+                      <p className="assembleia-mensagem-texto">{mensagem.texto}</p>
+                    </div>
+                  )
+                })}
+              </div>
+              {ativo && (
+                <form className="assembleia-chat-envio" onSubmit={enviarMensagem}>
+                  <input
+                    type="text"
+                    placeholder={ehAdministrador ? 'Mensagem como administrador...' : 'Escreva uma mensagem...'}
+                    value={novaMensagem}
+                    onChange={(e) => setNovaMensagem(e.target.value)}
+                    maxLength={500}
+                  />
+                  <button type="submit" className="btn btn-small btn-brass" disabled={!novaMensagem.trim()}>Enviar</button>
+                </form>
+              )}
+            </>
           )}
         </div>
       )}
