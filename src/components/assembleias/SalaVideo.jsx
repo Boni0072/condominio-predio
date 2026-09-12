@@ -297,6 +297,7 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
   const aoDescarregarRef = useRef(null)
   const micRef = useRef(true)
   const camRef = useRef(true)
+  const remotosRef = useRef({}) // uid -> MediaStream (espelho do estado remotos para acesso síncrono)
 
   // Sai da sala: para faixas de mídia, fecha conexões, remove listeners e
   // limpa presença/sinais no Firestore (melhor esforço, sem bloquear a UI).
@@ -562,6 +563,21 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
       conexao.pc.close()
     } catch { /* ignora */ }
     conexoesRef.current.delete(outroUid)
+    // Limpa o estado remoto e o stream para o participante que saiu
+    remotoEstadoRef.current[outroUid] = undefined
+    remotosRef.current[outroUid] = undefined
+    setRemotoEstado((atual) => {
+      if (!(outroUid in atual)) return atual
+      const novo = { ...atual }
+      delete novo[outroUid]
+      return novo
+    })
+    setRemotos((atual) => {
+      if (!(outroUid in atual)) return atual
+      const novo = { ...atual }
+      delete novo[outroUid]
+      return novo
+    })
   }
 
   function criarConexao(outroUid) {
@@ -627,12 +643,6 @@ export default function SalaVideo({ assembleiaId, usuario, ativo, linkExterno })
     for (const [outroUid] of conexoesRef.current) {
       if (!conectados.has(outroUid)) {
         fecharConexao(outroUid)
-        setRemotos((atual) => {
-          if (!(outroUid in atual)) return atual
-          const novo = { ...atual }
-          delete novo[outroUid]
-          return novo
-        })
       }
     }
     conectados.forEach((outroUid) => {
