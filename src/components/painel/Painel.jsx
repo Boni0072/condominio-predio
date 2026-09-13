@@ -52,11 +52,20 @@ function normalizarUnidade(valor) {
 
 // Regra de privacidade: o MORADOR só enxerga registros da própria unidade
 // (ou endereçados ao próprio nome). Demais perfis (síndico, zelador,
-// portaria, master) veem tudo.
+// portaria, master, conselheiro) veem tudo.
 function ehDoProprioMorador(registro, userProfile) {
-  if (userProfile?.role !== 'morador') return true
-  const minhaUnidade = normalizarUnidade(userProfile.unidade)
-  const meuNome = normalizarUnidade(userProfile.nome)
+  // Apenas estes perfis podem ver todos os registros
+  const ROLES_QUE_VER_TUDO = ['sindico', 'portaria', 'zelador', 'master', 'conselheiro']
+  const role = userProfile?.role
+  
+  // Se o role está na lista de quem pode ver tudo, retorna true
+  if (role && ROLES_QUE_VER_TUDO.includes(role)) {
+    return true
+  }
+  
+  // Morador (ou sem role definido) - filtra por unidade própria
+  const minhaUnidade = normalizarUnidade(userProfile?.unidade)
+  const meuNome = normalizarUnidade(userProfile?.nome)
   if (minhaUnidade && normalizarUnidade(registro.unidade) === minhaUnidade) return true
   if (meuNome && normalizarUnidade(registro.destinatario) === meuNome) return true
   return false
@@ -214,6 +223,7 @@ function EncomendasAguardandoList({ periodoMes, userProfile }) {
 
 function AtividadeRecente({ periodoMes, userProfile }) {
   const { visitantes, encomendas, comunicados } = useApp()
+  const [eventoDetalhado, setEventoDetalhado] = useState(null)
   const eventos = []
 
   visitantes
@@ -223,14 +233,24 @@ function AtividadeRecente({ periodoMes, userProfile }) {
       quando: v.entrada,
       tipo: 'Visitante',
       tom: 'badge-blue',
-      texto: `${v.nome} entrou no condomínio (${v.unidade})`
+      texto: `${v.nome} entrou no condomínio (${v.unidade})`,
+      detalhes: {
+        tipo: 'visitante',
+        visitante: v,
+        acao: 'entrada'
+      }
     })
     if (v.saida) {
       eventos.push({
         quando: v.saida,
         tipo: 'Visitante',
         tom: 'badge-blue',
-        texto: `${v.nome} saiu do condomínio`
+        texto: `${v.nome} saiu do condomínio`,
+        detalhes: {
+          tipo: 'visitante',
+          visitante: v,
+          acao: 'saida'
+        }
       })
     }
   })
@@ -250,7 +270,11 @@ function AtividadeRecente({ periodoMes, userProfile }) {
       tom: e.retiradaEm ? 'badge-green' : 'badge-brick',
       texto: `<span class="${corStatus}">${status}</span> — ${e.unidade}${e.transportadora ? ` (${e.transportadora})` : ''} · recebida ${recebida} · retirada ${retirada}`,
       semHora: true,
-      html: true
+      html: true,
+      detalhes: {
+        tipo: 'encomenda',
+        encomenda: e
+      }
     })
   })
 
@@ -259,7 +283,11 @@ function AtividadeRecente({ periodoMes, userProfile }) {
       quando: c.criadoEm,
       tipo: 'Mural',
       tom: 'badge-green',
-      texto: `Comunicado publicado: ${c.titulo}`
+      texto: `Comunicado publicado: ${c.titulo}`,
+      detalhes: {
+        tipo: 'comunicado',
+        comunicado: c
+      }
     })
   })
 
@@ -275,15 +303,132 @@ function AtividadeRecente({ periodoMes, userProfile }) {
   return (
     <div>
       {recentes.map((ev, i) => (
-        <div className="feed-item" key={i}>
+        <button
+          type="button"
+          className="feed-item feed-item-btn"
+          key={i}
+          onClick={() => setEventoDetalhado(ev)}
+          title="Ver detalhes"
+        >
           {!ev.semHora && <span className="feed-hora">{formatDateTime(ev.quando)}</span>}
           <span className={`badge ${ev.tom}`}>{ev.tipo}</span>
           {ev.html
             ? <span className="feed-texto" dangerouslySetInnerHTML={{ __html: ev.texto }} />
             : <span className="feed-texto">{ev.texto}</span>
           }
-        </div>
+        </button>
       ))}
+      {eventoDetalhado && eventoDetalhado.detalhes.tipo === 'visitante' && (() => {
+        const { visitante, acao } = eventoDetalhado.detalhes
+        return (
+          <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setEventoDetalhado(null)}>
+            <div className="modal atividade-detalhes-modal" role="dialog" aria-modal="true" aria-labelledby="atividade-detalhes-titulo">
+              <div className="modal-header">
+                <div>
+                  <h2 id="atividade-detalhes-titulo">
+                    {acao === 'entrada' ? 'Entrada de Visitante' : 'Saída de Visitante'}
+                  </h2>
+                  <p className="sub">Detalhes do registro</p>
+                </div>
+                <button type="button" className="modal-fechar" onClick={() => setEventoDetalhado(null)} aria-label="Fechar">×</button>
+              </div>
+              <div className="modal-body atividade-detalhes-conteudo">
+                <div className="atividade-detalhes-grid">
+                  <div><span>Visitante</span><strong>{visitante.nome}</strong></div>
+                  <div><span>Unidade</span><strong>{visitante.unidade}</strong></div>
+                  {visitante.documento && <div><span>Documento</span><strong>{visitante.documento}</strong></div>}
+                  {visitante.telefone && <div><span>Telefone</span><strong>{visitante.telefone}</strong></div>}
+                  <div><span>Entrada</span><strong>{formatDateTime(visitante.entrada)}</strong></div>
+                  <div><span>Saída</span><strong>{visitante.saida ? formatDateTime(visitante.saida) : '—'}</strong></div>
+                  {visitante.autorizadoPor && <div><span>Autorizado por</span><strong>{visitante.autorizadoPor}</strong></div>}
+                  {visitante.observacoes && <div><span>Observações</span><strong>{visitante.observacoes}</strong></div>}
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setEventoDetalhado(null)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+      {eventoDetalhado && eventoDetalhado.detalhes.tipo === 'encomenda' && (() => {
+        const { encomenda } = eventoDetalhado.detalhes
+        const statusEncomenda = encomenda.retiradaEm ? 'Retirada' : 'Aguardando retirada'
+        return (
+          <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setEventoDetalhado(null)}>
+            <div className="modal atividade-detalhes-modal" role="dialog" aria-modal="true" aria-labelledby="atividade-detalhes-titulo">
+              <div className="modal-header">
+                <div>
+                  <h2 id="atividade-detalhes-titulo">Detalhes da Encomenda</h2>
+                  <p className="sub">Informações do recebimento</p>
+                </div>
+                <button type="button" className="modal-fechar" onClick={() => setEventoDetalhado(null)} aria-label="Fechar">×</button>
+              </div>
+              <div className="modal-body atividade-detalhes-conteudo">
+                <div className="atividade-detalhes-grid">
+                  <div><span>Destinatário</span><strong>{encomenda.destinatario || 'Não informado'}</strong></div>
+                  <div><span>Unidade</span><strong>{encomenda.unidade}</strong></div>
+                  <div><span>Transportadora / origem</span><strong>{encomenda.transportadora || 'Não informado'}</strong></div>
+                  <div><span>Chegada</span><strong>{formatDateTime(encomenda.chegadaEm)}</strong></div>
+                  {encomenda.retiradaEm && <div><span>Retirada</span><strong>{formatDateTime(encomenda.retiradaEm)}</strong></div>}
+                  {encomenda.retiradoPor && <div><span>Retirado por</span><strong>{encomenda.retiradoPor}</strong></div>}
+                  <div><span>Status</span><strong>{statusEncomenda}</strong></div>
+                  {encomenda.observacoes && <div><span>Observações</span><strong>{encomenda.observacoes}</strong></div>}
+                </div>
+                {encomenda.assinatura && (
+                  <div className="atividade-detalhes-assinatura">
+                    <span>Assinatura de quem retirou</span>
+                    <a href={encomenda.assinatura} target="_blank" rel="noreferrer" className="assinatura-thumb-link">
+                      <img src={encomenda.assinatura} alt="Assinatura de quem retirou" className="assinatura-thumb" />
+                    </a>
+                  </div>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setEventoDetalhado(null)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+      {eventoDetalhado && eventoDetalhado.detalhes.tipo === 'comunicado' && (() => {
+        const { comunicado } = eventoDetalhado.detalhes
+        return (
+          <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setEventoDetalhado(null)}>
+            <div className="modal atividade-detalhes-modal" role="dialog" aria-modal="true" aria-labelledby="atividade-detalhes-titulo">
+              <div className="modal-header">
+                <div>
+                  <h2 id="atividade-detalhes-titulo">{comunicado.titulo}</h2>
+                  <p className="sub">
+                    <span className={`badge ${
+                      comunicado.categoria === 'urgente' || comunicado.categoria === 'manutencao'
+                        ? 'badge-brick'
+                        : comunicado.categoria === 'evento'
+                          ? 'badge-blue'
+                          : 'badge-green'
+                    }`}>
+                      {CATEGORIAS_MURAL[comunicado.categoria] || CATEGORIAS_MURAL.geral}
+                    </span>{' '}
+                    {comunicado.fixado && '● Fixado '}· {formatDate(comunicado.criadoEm)}
+                  </p>
+                </div>
+                <button type="button" className="modal-fechar" onClick={() => setEventoDetalhado(null)} aria-label="Fechar">×</button>
+              </div>
+              <div className="modal-body atividade-detalhes-conteudo">
+                {comunicado.conteudo ? (
+                  <p className="atividade-detalhes-conteudo-texto">{comunicado.conteudo}</p>
+                ) : (
+                  <p className="empty">Este comunicado não possui texto adicional.</p>
+                )}
+              </div>
+              <div className="modal-actions">
+                <span className="atividade-detalhes-autor">— {comunicado.autor || 'Administração'}</span>
+                <button type="button" className="btn btn-ghost" onClick={() => setEventoDetalhado(null)}>Fechar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

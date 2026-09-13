@@ -14,10 +14,8 @@ export const ACESSOS_POR_PERFIL = {
   master: ['master'],
   sindico: ['painel', 'portaria', 'despesas', 'orcamento', 'assembleias', 'usuarios', 'configuracoes', 'mural'],
   portaria: ['painel', 'portaria', 'assembleias', 'mural'],
-  // Morador vê as configurações do condomínio em modo SOMENTE LEITURA
-  // (nome, logo, endereço) e mantém as configurações do próprio dispositivo
-  // (notificações push e tema de cores).
-  morador: ['painel', 'despesas', 'assembleias', 'mural', 'configuracoes'],
+  // Morador: acesso básico ao painel, assembleias e mural
+  morador: ['painel', 'assembleias', 'mural'],
   // Zelador também acompanha o mural de avisos do condomínio.
   zelador: ['painel', 'despesas', 'orcamento', 'assembleias', 'mural'],
   // Conselheiro acompanha e APROVA os orçamentos mensais (não edita valores).
@@ -43,11 +41,6 @@ export function acessosDoUsuario(usuario) {
     }
   } else {
     acessos = [...padrao]
-  }
-  // Morador convidado por um conselheiro/síndico a aprovar o orçamento também
-  // ganha acesso à página do orçamento anual.
-  if (usuario?.role === 'morador' && usuario?.convidadoParaAprovar && !acessos.includes('orcamento')) {
-    acessos = [...acessos, 'orcamento']
   }
   return acessos
 }

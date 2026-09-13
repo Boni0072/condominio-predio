@@ -149,8 +149,8 @@ a {
 }
 
 .sidebar-brand .logo-img {
-  width: 110px;
-  height: 110px;
+  width: 172px;
+  height: 172px;
 }
 
 .sidebar-brand .mark {
@@ -3272,6 +3272,64 @@ a {
   object-fit: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius-s);
+}
+
+/* ---------- Atividade recente (modal de detalhes) ---------- */
+
+.atividade-detalhes-modal {
+  max-width: 620px;
+}
+
+.atividade-detalhes-conteudo {
+  padding: 20px;
+}
+
+.atividade-detalhes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.atividade-detalhes-grid span,
+.atividade-detalhes-grid strong {
+  display: block;
+}
+
+.atividade-detalhes-grid span {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  margin-bottom: 3px;
+}
+
+.atividade-detalhes-grid strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.atividade-detalhes-conteudo-texto {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.atividade-detalhes-autor {
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-style: italic;
+}
+
+.atividade-detalhes-assinatura {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.atividade-detalhes-assinatura > span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  margin-bottom: 8px;
 }
 
 /* ---------- Assembleias e votacoes ---------- */
