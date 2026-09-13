@@ -591,9 +591,6 @@ export default function Painel() {
             <span>Mês</span>
             <input type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} />
           </label>
-          <button type="button" className="btn btn-compact btn-ghost" onClick={() => setPeriodoMes('')}>
-            Todo o período
-          </button>
         </div>
       </div>
 

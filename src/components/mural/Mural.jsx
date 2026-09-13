@@ -133,6 +133,7 @@ export default function Mural() {
   const { comunicados } = useApp()
   const { userProfile } = useAuth()
   const canManage = userProfile?.role === 'sindico'
+  const canEnviarWhatsApp = userProfile?.role === 'sindico'
   const [formularioAberto, setFormularioAberto] = useState(false)
   const [painelWhatsAberto, setPainelWhatsAberto] = useState(false)
   const [comunicadoAvisar, setComunicadoAvisar] = useState(null)
@@ -157,7 +158,7 @@ export default function Mural() {
         </div>
       </div>
 
-      {painelWhatsAberto && (
+      {canEnviarWhatsApp && painelWhatsAberto && (
         <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header">
             <div>
@@ -179,9 +180,11 @@ export default function Mural() {
         </div>
       )}
 
-      <button type="button" className="btn btn-whatsapp btn-block" onClick={() => setPainelWhatsAberto((v) => !v)}>
-        {painelWhatsAberto ? 'Ocultar avisos por WhatsApp' : '📱 Avisar moradores via WhatsApp'}
-      </button>
+      {canEnviarWhatsApp && (
+        <button type="button" className="btn btn-whatsapp btn-block" onClick={() => setPainelWhatsAberto((v) => !v)}>
+          {painelWhatsAberto ? 'Ocultar avisos por WhatsApp' : '📱 Avisar moradores via WhatsApp'}
+        </button>
+      )}
 
       <div className={canManage ? 'grid-2' : ''}>
         {canManage && (

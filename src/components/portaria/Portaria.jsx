@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useApp } from '../../context/AppContext.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
 import { formatDateTime } from '../../utils/storage.js'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import AssinaturaRetiradaModal from './AssinaturaRetiradaModal.jsx'
@@ -132,6 +133,8 @@ function moradoresDaUnidade(moradores, unidade) {
 
 function VisitantesList() {
   const { visitantes, registrarSaida, removerVisitante } = useApp()
+  const { userProfile } = useAuth()
+  const podeEnviarWhatsApp = userProfile?.role === 'sindico'
 
   if (visitantes.length === 0) {
     return <div className="empty-state">Nenhum visitante registrado ainda hoje.</div>
@@ -165,7 +168,7 @@ function VisitantesList() {
             ) : (
               <>
                 <span className="badge badge-green">No condomínio</span>
-                <AvisoVisitanteWhatsApp visitante={v} />
+                {podeEnviarWhatsApp && <AvisoVisitanteWhatsApp visitante={v} />}
                 <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
                   Registrar saída
                 </button>
@@ -364,6 +367,8 @@ function EncomendaForm() {
 
 function EncomendasList() {
   const { encomendas, confirmarRetirada, removerEncomenda, moradores, registrarAvisoEncomenda } = useApp()
+  const { userProfile } = useAuth()
+  const podeEnviarWhatsApp = userProfile?.role === 'sindico'
   const [retiradaModal, setRetiradaModal] = useState(null)
   const [busca, setBusca] = useState('')
 
@@ -448,7 +453,7 @@ function EncomendasList() {
               ) : (
                 <>
                   <span className="badge badge-brick">Aguardando retirada</span>
-                  <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />
+                  {podeEnviarWhatsApp && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
                   <button className="btn btn-ghost btn-small" onClick={() => setRetiradaModal(e)}>
                     Marcar retirada
                   </button>

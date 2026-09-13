@@ -34,16 +34,33 @@ export function pushConfigurado() {
 // funcionar com o app fechado. O src/sw.js já cuida do Firebase Messaging.
 export async function registrarServiceWorkerFCM() {
   if (!('serviceWorker' in navigator)) return null
+  // Em desenvolvimento (npm run dev) o /sw.js NÃO existe (vite.config.js tem
+  // devOptions.enabled=false). O dev server responde 404 como text/html; tentar
+  // registrar aqui lança "SecurityError: unsupported MIME type ('text/html')"
+  // e confunde o diagnóstico. O push exige build de produção (HTTPS).
+  if (import.meta.env.DEV) {
+    ultimoErroFCM = 'Modo desenvolvimento: o push exige build de produção (o /sw.js não existe no dev server; o main.jsx também desregistra os SWs no DEV).'
+    console.warn('[PUSH]', ultimoErroFCM)
+    return null
+  }
   try {
     // Garante que o SW principal já está registrado (caso esta função seja
     // chamada antes do listener de "load" em main.jsx terminar).
-    const existente = await navigator.serviceWorker.getRegistration('/')
-    const registration = existente || (await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
+    // NOTA: usamos getRegistrations() (API padrão) — getRegistration() não
+    // existe em todos os navegadores e lançava TypeError, causando a falha
+    // "Falha ao registrar SW do FCM" no diagnóstico.
+    const registros = await navigator.serviceWorker.getRegistrations()
+    // Se já existe algum SW (o do PWA /sw.js), reutilizamos o primeiro; só
+    // registramos /sw.js quando não há nenhum (evita competir entre SWs).
+    const registration = registros.length > 0
+      ? registros[0]
+      : (await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
     // Espera o SW ficar ativo — getToken() precisa de um registration.active
     const pronto = await navigator.serviceWorker.ready
     console.log('[PUSH] Usando SW único já ativo:', pronto.scope)
     return registration.active ? registration : pronto
   } catch (err) {
+    ultimoErroFCM = `Falha ao obter SW registrado: ${err?.message || err}`
     console.warn('[PUSH] Falha ao obter SW registrado:', err)
     return null
   }

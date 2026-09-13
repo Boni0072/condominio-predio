@@ -103,13 +103,16 @@ export default function Configuracoes() {
     const regs = await navigator.serviceWorker.getRegistrations()
     adicionarDiag(`SWs registrados: ${regs.length}`)
     regs.forEach((r) => adicionarDiag(`  - ${r.scope}`))
+    if (regs.length === 0 && import.meta.env.DEV) {
+      adicionarDiag('  (normal en desarrollo: main.jsx desregistra los SWs y el /sw.js solo se genera en el build de producción)')
+    }
 
     // 5. Tenta obter token
     try {
       const { obterTokenFCM, registrarServiceWorkerFCM } = await import('../../utils/push.js')
       const reg = await registrarServiceWorkerFCM()
       if (!reg) {
-        adicionarDiag('❌ Falha ao registrar SW do FCM')
+        adicionarDiag(`❌ Falha ao registrar SW do FCM: ${ultimoErroToken() || 'motivo desconhecido'}`)
         return
       }
       adicionarDiag('✅ SW FCM registrado')
