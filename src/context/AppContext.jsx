@@ -4,7 +4,7 @@ import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where
 import { db } from '../firebase/config.js'
 import { load, save, uid, nowISO } from '../utils/storage.js'
 import { ACESSOS_POR_PERFIL } from '../utils/permissoes.js'
-import { notificarNovaEncomenda, notificarNovoVisitante, solicitarPermissao } from '../utils/notificacao.js'
+import { notificarNovaEncomenda, notificarNovoVisitante, notificarNovoComunicado, solicitarPermissao } from '../utils/notificacao.js'
 import { salvarTokenUsuario, notificarEncomendaPush, notificarVisitantePush, ativarListenerFrente, enviarPushTenant } from '../utils/push.js'
 
 const AppContext = createContext(null)
@@ -19,8 +19,8 @@ function ModalPermissaoNotificacao({ onAceitar, onFechar }) {
         <div className="permissoes-icone">🔔</div>
         <h3>Ativar notificações?</h3>
         <p>
-          Para receber avisos de <strong>encomendas</strong> e <strong>visitantes</strong> em
-          tempo real, precisamos da sua permissão.
+          Para receber avisos de <strong>encomendas</strong>, <strong>visitantes</strong> e
+          <strong>comunicados do mural</strong> em tempo real, precisamos da sua permissão.
         </p>
         <div className="permissoes-botoes">
           <button type="button" className="btn btn-ghost" onClick={onFechar}>
@@ -373,6 +373,8 @@ export function AppProvider({ children }) {
       return atualizado
     })
     salvarDocumento('comunicados', item)
+    // Notificação local (funciona enquanto o app está aberto/minimizado)
+    notificarNovoComunicado(item)
     // ENVIO PARA TODOS: além de aparecer no mural, o comunicado dispara
     // notificação push automática para TODOS os dispositivos cadastrados do
     // condomínio (via Cloud Function, que envia para cada pushToken do tenant).

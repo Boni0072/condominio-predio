@@ -102,9 +102,23 @@ export default function Configuracoes() {
     // 4. Service Worker
     const regs = await navigator.serviceWorker.getRegistrations()
     adicionarDiag(`SWs registrados: ${regs.length}`)
-    regs.forEach((r) => adicionarDiag(`  - ${r.scope}`))
+    regs.forEach((r) => adicionarDiag(`  - ${r.scope} ${r.active ? '(ativo)' : '(inativo)'}`))
     if (regs.length === 0 && import.meta.env.DEV) {
       adicionarDiag('  (normal en desarrollo: main.jsx desregistra los SWs y el /sw.js solo se genera en el build de producción)')
+    }
+
+    // 4b. Comprobaciones del CELULAR (segundo plano)
+    const emModoApp =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: minimal-ui)').matches ||
+      navigator.standalone === true
+    adicionarDiag(`App instalada (modo standalone): ${emModoApp ? '✅ SÍ' : '❌ NO'}`)
+    if (!emModoApp) {
+      adicionarDiag('  ⚠️ Para recibir notificaciones con la app cerrada, instale el app con el botón "Instalar aplicativo" (en iOS: Compartir → Añadir a pantalla de inicio) y ábrala desde el icono.')
+    }
+    if (location.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(location.hostname)) {
+      adicionarDiag('❌ Se requiere HTTPS para los Service Workers (no funciona por HTTP).')
+      return
     }
 
     // 5. Tenta obter token

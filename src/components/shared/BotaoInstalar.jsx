@@ -46,8 +46,8 @@ function PermissoesModal({ onAceitar, onFechar, userProfile }) {
             <div className="permissoes-icone">🔔</div>
             <h3>Ativar notificações</h3>
             <p>
-              Para receber avisos de <strong>encomendas</strong> e <strong>visitantes</strong> em
-              tempo real, precisamos de duas permissões:
+              Para receber avisos de <strong>encomendas</strong>, <strong>visitantes</strong> e
+              <strong>comunicados do mural</strong> em tempo real, precisamos de duas permissões:
             </p>
             <ul className="permissoes-lista">
               <li>

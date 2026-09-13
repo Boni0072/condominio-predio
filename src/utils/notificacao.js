@@ -98,3 +98,18 @@ export function notificarNovoVisitante(visitante) {
     }
   })
 }
+// Notificação para novo comunicado publicado no mural
+export function notificarNovoComunicado(comunicado) {
+  const titulo = `📢 ${comunicado.titulo || 'Novo comunicado'}`
+  const corpo = String(comunicado.conteudo || '').slice(0, 180) || 'Comunicado publicado no mural.'
+
+  return enviarNotificacao(titulo, {
+    body: corpo,
+    tag: `comunicado-${comunicado.id}`,
+    data: {
+      tipo: 'comunicado',
+      id: comunicado.id,
+      url: '/#/mural'
+    }
+  })
+}
