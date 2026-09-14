@@ -55,6 +55,10 @@ export async function registrarServiceWorkerFCM() {
     const registration = registros.length > 0
       ? registros[0]
       : (await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
+    // Limpia SWs obsoletos do FCM registrados por versões anteriores do app
+    // (scopes /fcm-push/ e /firebase-cloud-messaging-push-scope) — compiten
+    // com o nosso /sw.js e fazem as notificações parar de chegar.
+    limpiarServiceWorkersObsoletos()
     // Espera o SW ficar ativo — getToken() precisa de um registration.active
     const pronto = await navigator.serviceWorker.ready
     console.log('[PUSH] Usando SW único já ativo:', pronto.scope)
@@ -64,6 +68,37 @@ export async function registrarServiceWorkerFCM() {
     console.warn('[PUSH] Falha ao obter SW registrado:', err)
     return null
   }
+}
+
+// Desregistra os Service Workers obsoletos que versões antigas do app (ou o
+// SDK de Firebase Messaging) deixaram registrados fora do escopo raíz, como
+// /fcm-push/ e /firebase-cloud-messaging-push-scope. Só deve existir UM SW:
+// o do PWA (/sw.js registrado no escopo "/").
+export async function limpiarServiceWorkersObsoletos() {
+  if (!('serviceWorker' in navigator)) return 0
+  let eliminados = 0
+  try {
+    const registros = await navigator.serviceWorker.getRegistrations()
+    for (const reg of registros) {
+      try {
+        const scope = reg.scope || ''
+        if (!scope) continue
+        // Mantém SÓ o escopo raíz (path "/") e descarta qualquer subpath do
+        // Firebase (fcm-push, firebase-cloud-messaging-push-scope...).
+        const path = new URL(scope).pathname || '/'
+        if (path !== '/') {
+          console.log('[PUSH] Desregistrando SW obsoleto:', scope)
+          reg.unregister()
+          eliminados++
+        }
+      } catch {
+        /* scope no analizable: ignorar */
+      }
+    }
+  } catch (err) {
+    console.warn('[PUSH] No se pudieron limpiar SWs obsoletos:', err)
+  }
+  return eliminados
 }
 
 // Gera (ou reutiliza) o token FCM deste dispositivo.

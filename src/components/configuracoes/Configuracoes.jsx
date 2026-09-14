@@ -100,9 +100,17 @@ export default function Configuracoes() {
     }
 
     // 4. Service Worker
+    const { limpiarServiceWorkersObsoletos } = await import('../../utils/push.js')
+    const eliminadosSW = await limpiarServiceWorkersObsoletos()
+    if (eliminadosSW > 0) {
+      adicionarDiag(`🧹 Limpia dos Service Workers obsoletos do Firebase: ${eliminadosSW} desregistro(s)`)
+    }
     const regs = await navigator.serviceWorker.getRegistrations()
     adicionarDiag(`SWs registrados: ${regs.length}`)
     regs.forEach((r) => adicionarDiag(`  - ${r.scope} ${r.active ? '(ativo)' : '(inativo)'}`))
+    if (regs.length > 1) {
+      adicionarDiag('  ⚠️ Debería haber SOLO 1 SW (el del PWA en el escopo raíz). Los demás compiten y el push se vuelve inestable — este diagnóstico intentó limpiarlos.')
+    }
     if (regs.length === 0 && import.meta.env.DEV) {
       adicionarDiag('  (normal en desarrollo: main.jsx desregistra los SWs y el /sw.js solo se genera en el build de producción)')
     }

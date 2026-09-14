@@ -30,6 +30,13 @@ if ('serviceWorker' in navigator) {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
         console.log('[SW] Service Worker único registrado (PWA + Push):', registration.scope)
+        // Elimina SWs obsoletos del Firebase Messaging (los registraba el SDK en
+        // versiones anteriores, en scopes /fcm-push/ y
+        // /firebase-cloud-messaging-push-scope) — compiten con el nuestro y
+        // hacen que el push deje de llegar con la app cerrada.
+        const { limpiarServiceWorkersObsoletos } = await import('./utils/push.js')
+        const eliminados = await limpiarServiceWorkersObsoletos()
+        if (eliminados > 0) console.log(`[SW] SWs obsoletos del FCM desregistrados: ${eliminados}`)
       } catch (err) {
         console.warn('[SW] Falha ao registrar Service Worker:', err)
       }
