@@ -622,10 +622,12 @@ export default function Painel() {
         <KpiCard to="/mural" num={comunicadosDoPeriodo.length} label="comunicados publicados no mural" />
       </div>
 
-      {/* Orçado x realizado por mês. O gráfico respeita o "Acesso às páginas":
-      aparece para quem tem a página Orçamento marcada no cadastro — e também
-      para o morador, como transparência (mas sem o botão "Abrir orçamento"). */}
-      {(userProfile?.role === 'morador' || temAcesso(userProfile, 'orcamento')) && (
+      {/* Orçado x realizado por mês. O conselheiro (perfil que aprova orçamentos
+      no sistema) SEMPRE vê o gráfico no painel — era uma regressão quando a
+      lista de acessos salva no Firestore ficou sem "orcamento" (dados antigos).
+      O morador continua vendo como transparência. Já o botão "Abrir orçamento"
+      só aparece para quem tem a página Orçamento marcada em "Acesso às páginas". */}
+      {(userProfile?.role === 'morador' || userProfile?.role === 'conselheiro' || temAcesso(userProfile, 'orcamento')) && (
         <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header">
             <div>
