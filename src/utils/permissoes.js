@@ -22,27 +22,31 @@ export const ACESSOS_POR_PERFIL = {
   conselheiro: ['painel', 'orcamento', 'assembleias', 'mural', 'configuracoes']
 }
 
-// A lista salva no cadastro do usuário é a fonte da verdade: o que o síndico
-// marcou em "Acesso às páginas" (inclusive para o Conselheiro) é respeitado.
-// Para contas antigas (sem lista salva ou sem a página incluída), o padrão do
-// perfil é completado automaticamente — sem isso o conselheiro nunca veria a
-// página "Orçamento anual" nem chegaria ao botão "Firmar e guardar aprovação".
+// A lista salva no cadastro do usuário ("Acesso às páginas") é a fonte da
+// verdade: respeitamos EXATAMENTE o que o síndico marcou. Antes o código
+// fazia a UNIÃO da lista salva com os padrões do perfil — uma página
+// desmarcada em "Acesso às páginas" volta sozinha na próxima consulta, e a
+// seleção do síndico era simplesmente ignorada.
+// Contas antigas (sem o campo "acessos" no Firestore) ou com lista vazia
+// recebem os padrões atuais do perfil.
 export function acessosDoUsuario(usuario) {
   const padrao = ACESSOS_POR_PERFIL[usuario?.role] || []
-  let acessos
-  if (Array.isArray(usuario?.acessos)) {
-    // Lista salva vazia = cadastro quebrado/antigo: usa os padrões do perfil.
-    if (usuario.acessos.length === 0) {
-      acessos = [...padrao]
-    } else {
-      const completos = new Set(usuario.acessos)
-      padrao.forEach((acesso) => completos.add(acesso))
-      acessos = Array.from(completos)
-    }
-  } else {
-    acessos = [...padrao]
+  if (Array.isArray(usuario?.acessos) && usuario.acessos.length > 0) {
+    // Mantém apenas páginas que existem de fato (PAGINAS_ACESSO) — nunca
+    // concede acesso a algo que não esteja na lista oficial de páginas.
+    const idsValidos = new Set(PAGINAS_ACESSO.map((p) => p.id))
+    const selecionados = [
+      ...new Set(
+        usuario.acessos
+          .filter((a) => typeof a === 'string' && idsValidos.has(a.trim()))
+          .map((a) => a.trim())
+      )
+    ]
+    // Lista salva só com páginas obsoletas (não existem mais) → usa padrões.
+    if (selecionados.length > 0) return selecionados
   }
-  return acessos
+  // Sem lista salva ou lista vazia → padrões do perfil.
+  return [...padrao]
 }
 
 export function temAcesso(usuario, pagina) {

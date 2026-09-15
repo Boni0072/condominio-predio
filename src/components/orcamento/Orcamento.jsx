@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import AssinaturaModal from './AssinaturaModal.jsx'
 import { formatCurrency, formatDate, formatDateTime, getMonthKey } from '../../utils/storage.js'
 import { chavePrevisto, previstoIdDe, aprovacoesDoMes, iconesAprovadosDOIxa, resumoVotosItem, registrosDoItem, somaAprovacoesMes } from './orcamentoUtils.js'
+import { temAcesso } from '../../utils/permissoes.js'
 
 const CATEGORIAS = [
   { id: 'manutencao', label: 'Manutenção', icon: '🔧' },
@@ -433,7 +434,10 @@ export default function Orcamento() {
     setErro('')
   }
 
-  if (!['sindico', 'zelador', 'conselheiro'].includes(userProfile?.role) && !podeAprovarOrcamento()) {
+  // Bloqueio de segurança (além da rota, que já exige temAcesso('orcamento')):
+  // respeita a seleção de "Acesso às páginas" do síndico — qualquer perfil com
+  // a página marcada entra; quem não tem a página não entra.
+  if (!temAcesso(userProfile, 'orcamento') && !podeAprovarOrcamento()) {
     return <div className="page"><div className="login-erro">Você não tem permissão para acessar o orçamento anual.</div></div>
   }
 

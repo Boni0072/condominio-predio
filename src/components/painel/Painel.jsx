@@ -6,6 +6,7 @@ import { formatDateTime, formatDate, formatCurrency, getMonthKey } from '../../u
 import { AvisoEncomendaWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
 import { OrcamentoModal } from '../orcamento/Orcamento.jsx'
 import { somaAprovacoesMes, aprovacoesDoMes } from '../orcamento/orcamentoUtils.js'
+import { temAcesso } from '../../utils/permissoes.js'
 
 const HOJE = new Date()
   .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
@@ -621,14 +622,17 @@ export default function Painel() {
         <KpiCard to="/mural" num={comunicadosDoPeriodo.length} label="comunicados publicados no mural" />
       </div>
 
-      {['sindico', 'zelador', 'morador'].includes(userProfile?.role) && (
+      {/* Orçado x realizado por mês. O gráfico respeita o "Acesso às páginas":
+      aparece para quem tem a página Orçamento marcada no cadastro — e também
+      para o morador, como transparência (mas sem o botão "Abrir orçamento"). */}
+      {(userProfile?.role === 'morador' || temAcesso(userProfile, 'orcamento')) && (
         <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header">
             <div>
               <h2>Orçamento {anoOrcamento}</h2>
               <p className="field-help">Orçado x realizado por mês</p>
             </div>
-            {userProfile?.role !== 'morador' && <Link to="/orcamento" className="btn btn-ghost btn-small">Abrir orçamento</Link>}
+            {temAcesso(userProfile, 'orcamento') && <Link to="/orcamento" className="btn btn-ghost btn-small">Abrir orçamento</Link>}
           </div>
           <div className="orcamento-grafico orcamento-grafico-painel">
             {dadosOrcamento.map((item) => (
