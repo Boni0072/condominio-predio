@@ -28,6 +28,57 @@ export function pushConfigurado() {
   return Boolean(FCM_VAPID_KEY && FCM_VAPID_KEY !== 'SUA_VAPID_KEY_AQUI')
 }
 
+// ---------- Suporte da plataforma (celular) ----------
+
+export function plataformaAtual() {
+  const ua = navigator.userAgent || ''
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios'
+  if (/android/i.test(ua)) return 'android'
+  if (/windows/i.test(ua)) return 'windows'
+  if (/macintosh|mac os/i.test(ua)) return 'mac'
+  if (/linux/i.test(ua)) return 'linux'
+  return 'desconhecida'
+}
+
+// Versão do iOS (ex.: "16.4") ou null se não for iOS.
+export function versaoIOS() {
+  const match = (navigator.userAgent || '').match(/OS (\d+)[_.](\d+)/)
+  if (!match) return null
+  return Number(`${match[1]}.${match[2]}`)
+}
+
+// O app web está rodando como app instalado (tela cheia/standalone)?
+export function appInstaladoEmModoApp() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.navigator.standalone === true
+  )
+}
+
+// Web Push no iOS SOMENTE existe a partir do iOS/iPadOS 16.4 e com o app
+// adicionado à Tela de Início (Compartilhar → Adicionar à Tela de Início) e
+// aberto pelo ícone. Antes disso o push não chega de jeito nenhum — em vez de
+// falhar em silêncio, explicamos o motivo.
+export function pushSuportadoNoDispositivo() {
+  if (plataformaAtual() === 'ios') {
+    const v = versaoIOS()
+    if (v !== null && v < 16.4) {
+      return {
+        ok: false,
+        motivo: `Notificações no iPhone/iPad exigem iOS/iPadOS 16.4 ou superior (este aparelho está no ${v}). Atualize o sistema e instale o app pela Tela de Início.`
+      }
+    }
+    if (v !== null && !appInstaladoEmModoApp()) {
+      return {
+        ok: false,
+        motivo: 'No iPhone/iPad o push só funciona com o app instalado na Tela de Início (Compartilhar → Adicionar à Tela de Início) e aberto pelo ícone — não pela aba do Safari.'
+      }
+    }
+  }
+  return { ok: true, motivo: '' }
+}
+
 // Retorna o registro do ÚNICO service worker do app (registrado em main.jsx).
 // Não registramos um segundo SW aqui: dois SWs no mesmo escopo "/" competem
 // entre si e um acaba substituindo o outro, fazendo o push parar de
@@ -50,19 +101,48 @@ export async function registrarServiceWorkerFCM() {
     // existe em todos os navegadores e lançava TypeError, causando a falha
     // "Falha ao registrar SW do FCM" no diagnóstico.
     const registros = await navigator.serviceWorker.getRegistrations()
-    // Se já existe algum SW (o do PWA /sw.js), reutilizamos o primeiro; só
-    // registramos /sw.js quando não há nenhum (evita competir entre SWs).
-    const registration = registros.length > 0
-      ? registros[0]
-      : (await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
+    // Prefere SEMPRE o SW de escopo raiz "/" (o do PWA /sw.js). Se não houver,
+    // usa o primeiro registro apenas como fallback; só registra quando não
+    // existe nenhum (evita criar SWs competindo entre si).
+    let registration = registros.find((r) => {
+      try {
+        return new URL(r.scope).pathname === '/'
+      } catch {
+        return false
+      }
+    })
+    if (!registration) {
+      if (registros.length > 0) {
+        console.warn('[PUSH] Nenhum SW de escopo raiz; reutilizando o primeiro:', registros[0].scope)
+        registration = registros[0]
+      } else {
+        registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      }
+    }
     // Limpia SWs obsoletos do FCM registrados por versões anteriores do app
     // (scopes /fcm-push/ e /firebase-cloud-messaging-push-scope) — compiten
     // com o nosso /sw.js e fazem as notificações parar de chegar.
     limpiarServiceWorkersObsoletos()
-    // Espera o SW ficar ativo — getToken() precisa de um registration.active
-    const pronto = await navigator.serviceWorker.ready
+    // Se o SW já está ativo, segue direto — esperar o "ready" é desnecessário.
+    if (registration.active) {
+      console.log('[PUSH] SW raiz já ativo:', registration.scope)
+      return registration
+    }
+    // Espera o SW ficar ativo (getToken() precisa de registration.active) com
+    // LIMITE DE TEMPO: se a instalação falhou (ex.: rede caída no celular),
+    // navigator.serviceWorker.ready promete para sempre e o app travava em
+    // silêncio — sem token, sem push, sem explicação alguma.
+    const pronto = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, rejeitar) =>
+        setTimeout(
+          () => rejeitar(new Error('Tempo esgotado esperando o SW ativar — verifique se /sw.js está publicado (HTTPS) e sem erro de script')),
+          20000
+        )
+      )
+    ])
     console.log('[PUSH] Usando SW único já ativo:', pronto.scope)
-    return registration.active ? registration : pronto
+    return pronto
   } catch (err) {
     ultimoErroFCM = `Falha ao obter SW registrado: ${err?.message || err}`
     console.warn('[PUSH] Falha ao obter SW registrado:', err)
@@ -113,6 +193,14 @@ export async function obterTokenFCM({ forcarNovo = false } = {}) {
   }
   if (!('serviceWorker' in navigator)) {
     ultimoErroFCM = 'Service Worker não suportado neste navegador'
+    console.warn('[PUSH]', ultimoErroFCM)
+    return null
+  }
+  // iOS < 16.4 / app não instalado: o push NÃO existe nesse cenário. Falhar
+  // com motivo claro em vez de "getToken retornou vazio" (sem explicação).
+  const suporte = pushSuportadoNoDispositivo()
+  if (!suporte.ok) {
+    ultimoErroFCM = suporte.motivo
     console.warn('[PUSH]', ultimoErroFCM)
     return null
   }

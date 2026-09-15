@@ -30,6 +30,36 @@ if ('serviceWorker' in navigator) {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
         console.log('[SW] Service Worker único registrado (PWA + Push):', registration.scope)
+
+        // Acelera a atualização do SW: quando existe uma versão nova em espera,
+        // avisa para ela pular a espera (skipWaiting) e assumir o controle já
+        // nesta sessão (o registerType: autoUpdate do vite-plugin-pwa não se
+        // aplica porque o registro aqui é manual — injectRegister: false).
+        const avancarVersao = () => {
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+            console.log('[SW] Nova versão do SW ativada (SKIP_WAITING).')
+          }
+        }
+        avancarVersao()
+        registration.addEventListener('updatefound', () => {
+          const novo = registration.installing
+          if (!novo) return
+          novo.addEventListener('statechange', () => {
+            if (novo.state === 'installed') avancarVersao()
+          })
+        })
+        // Força a verificação de atualização do SW ao abrir o app — junto com
+        // o header Cache-Control: no-cache do firebase.json, uma versão nova
+        // do sw.js passa a valer imediatamente (antes levava até 1h). Não roda
+        // durante a primeira instalação (registration.installing preenchido)
+        // porque update() lança InvalidStateError nesse momento.
+        try {
+          if (registration.update && !registration.installing) registration.update()
+        } catch {
+          /* update() indisponível nesta fase — o navegador já checa sozinho */
+        }
+
         // Elimina SWs obsoletos del Firebase Messaging (los registraba el SDK en
         // versiones anteriores, en scopes /fcm-push/ y
         // /firebase-cloud-messaging-push-scope) — compiten con el nuestro y

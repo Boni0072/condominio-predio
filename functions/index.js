@@ -70,15 +70,16 @@ export const enviarNotificacao = onCall({ cors: true }, async (request) => {
     return { enviados: 0, totalTokens: 0 }
   }
 
-  // Monta a mensagem para FCM v1
+  // Monta a mensagem para FCM v1.
+  // IMPORTANTE: o envio é SOMENTE com o bloco "data" (sem "notification").
+  // Quem renderiza a notificação é o onBackgroundMessage do service worker
+  // único (src/sw.js). Enviar também o bloco "notification" fazia o FCM
+  // disparar a notificação automática E o SW mostrar outra (duplicadas),
+  // além de carregar ícones com URL relativa que alguns navegadores recusam
+  // quando a notificação "vem pronta" do servidor — com dados apenas, a
+  // exibição é 100% controlada por nós e funciona igual em Android/iOS.
   const mensagens = tokens.map((token) => ({
     token,
-    notification: {
-      title: titulo,
-      body: corpo,
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png'
-    },
     data: { url: url || '/', titulo, corpo },
     webpush: {
       fcmOptions: { link: url || '/' }

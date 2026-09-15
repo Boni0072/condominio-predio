@@ -414,6 +414,18 @@ a {
   border-bottom: none;
 }
 
+.permissoes-aviso {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #b8c4c9;
+  font-size: 14.6px;
+  line-height: 1.5;
+  text-align: left;
+}
+
 .permissoes-item-icone {
   flex-shrink: 0;
   font-size: 20.8px;

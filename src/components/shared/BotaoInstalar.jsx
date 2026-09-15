@@ -57,13 +57,20 @@ function PermissoesModal({ onAceitar, onFechar, userProfile }) {
                 </span>
               </li>
               <li>
-                <span className="permissoes-item-icone">⚙️</span>
+                <span className="permissoes-item-icone">🔔</span>
                 <span>
-                  <strong>Segundo plano</strong> — mantém o app ativo para receber avisos mesmo
-                  fechado
+                  <strong>Funciona com o app fechado</strong> — o aviso chega pelo
+                  sistema do celular, sem o app precisar ficar aberto nem rodando
+                  em segundo plano
                 </span>
               </li>
             </ul>
+            <div className="permissoes-aviso">
+              💡 No <strong>Android</strong>, se os alertas não chegarem com o app
+              fechado, libere o navegador Chrome em{' '}
+              <strong>Ajustes → Apps → Chrome → Bateria</strong> (permitir uso em
+              segundo plano / sem restrições).
+            </div>
             {erro && <div className="permissoes-erro">{erro}</div>}
             <div className="permissoes-botoes">
               <button type="button" className="btn btn-ghost" onClick={onFechar}>
@@ -170,8 +177,11 @@ export default function BotaoInstalar({ userProfile }) {
       {mostrarAjuda && (
         <div className="instalar-ajuda">
           No iPhone/iPad: toque no botão <strong>Compartilhar</strong> e depois em{' '}
-          <strong>Adicionar à Tela de Início</strong>. Após instalar, abra o app e vá em{' '}
-          <strong>Configurações → Notificações</strong> para ativar os alertas.
+          <strong>Adicionar à Tela de Início</strong>. Após instalar, abra o app pelo
+          ícone e vá em <strong>Configurações → Notificações</strong> para ativar os alertas.
+          <br />
+          ⚠️ As notificações push no iPhone/iPad só funcionam a partir do{' '}
+          <strong>iOS/iPadOS 16.4</strong> e com o app aberto pelo ícone da Tela de Início.
         </div>
       )}
     </div>
