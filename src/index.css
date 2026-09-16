@@ -819,15 +819,74 @@ a {
   font-size: 14.3px;
 }
 
+/* Orçado x realizado do painel (mobile < 560px): o gráfico transforma
+   em grid 2 colunas e as barras continuam com altura absoluta para não
+   sumir quando a viewport empilha o grid de 12 colunas. */
 @media (max-width: 560px) {
-  .filtro-cabecalho {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
+  .orcamento-grafico-painel {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    padding: 14px 4px 0;
+    min-height: 120px;
+    align-items: end;
   }
 
-  .filtro-busca-cabecalho {
-    flex: 1 1 160px;
+  .orcamento-barras {
+    height: 112px;
+  }
+
+  .barra {
+    width: 12px;
+    min-height: 0;
+  }
+
+  .barra::after {
+    font-size: 11px;
+    white-space: normal;
+    word-break: break-all;
+    bottom: calc(100% + 2px);
+  }
+
+  .barra-orcado::after,
+  .barra-realizado::after {
+    font-size: 11px;
+  }
+
+  .orcamento-mes strong {
+    font-size: 11px;
+  }
+}
+
+/* Caso a tela seja ainda mais estreita (< 420px), reduzimos para
+   grid 3 colunas e barra menor de 76px. */
+@media (max-width: 420px) {
+  .orcamento-grafico-painel {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 10px 2px 0;
+    min-height: 100px;
+  }
+
+  .orcamento-barras {
+    height: 76px;
+  }
+
+  .barra {
+    width: 10px;
+  }
+
+  .barra::after {
+    font-size: 10px;
+    bottom: calc(100% + 1px);
+  }
+
+  .barra-orcado::after,
+  .barra-realizado::after {
+    font-size: 10px;
+  }
+
+  .orcamento-mes strong {
+    font-size: 10px;
   }
 }
 
@@ -1087,6 +1146,44 @@ a {
 @media (max-width: 1024px) {
   .grid-2 {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Orçado x realizado do painel (mobile): ajustes finos para não
+   sumir as barras quando o container fica muito estreito (<480px). */
+@media (max-width: 480px) {
+  .orcamento-grafico-painel {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 8px 2px 0;
+    min-height: 200px;
+  }
+
+  .orcamento-barras {
+    height: 80px;
+  }
+
+  .barra {
+    width: 10px;
+  }
+
+  .barra::after {
+    font-size: 10px;
+    bottom: calc(100% + 1px);
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  .barra-realizado::after {
+    font-size: 10px;
+  }
+
+  .barra-orcado::after {
+    font-size: 10px;
+  }
+
+  .orcamento-mes strong {
+    font-size: 10.5px;
   }
 }
 
