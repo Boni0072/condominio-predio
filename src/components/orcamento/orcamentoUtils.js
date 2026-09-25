@@ -58,6 +58,19 @@ export function resumoVotosItem(aprovMes, orcamentoId, itemId, descricao, idsOrc
 // Alias de compatibilidade com a UI (ícones ✓/✗ por item)
 export const iconesAprovadosDOIxa = resumoVotosItem
 
+// O mês só entra no rateio como "orçamento APROVADO" com ≥3 assinaturas de
+// usuários distintos — mesma regra que valida o mês na tela de Orçamento.
+// Dentro do mês aprovado, o valor é a soma dos sub-itens com ≥2 aprovações
+// e menos de 2 rejeições (regra de "Orçado" abaixo).
+export function mesAprovadoPorAssinaturas(aprovacoesDoPeriodo = []) {
+  const distintos = new Set(
+    (Array.isArray(aprovacoesDoPeriodo) ? aprovacoesDoPeriodo : []).map(
+      (a) => a.usuarioId || a.usuarioEmail || a.usuarioNome || a.id
+    ).filter(Boolean)
+  )
+  return distintos.size >= 3
+}
+
 // O item conta no total quando tem ≥2 aprovações E menos de 2 rejeições
 export function aceitacaoItem(aprovMes, orcamentoId, itemId, descricao, idsOrcamentosValidos) {
   const r = resumoVotosItem(aprovMes, orcamentoId, itemId, descricao, idsOrcamentosValidos)

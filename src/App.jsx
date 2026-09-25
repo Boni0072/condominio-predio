@@ -15,6 +15,7 @@ import Orcamento from './components/orcamento/Orcamento.jsx'
 import Assembleias from './components/assembleias/Assembleias.jsx'
 import Usuarios from './components/usuarios/Usuarios.jsx'
 import Configuracoes from './components/configuracoes/Configuracoes.jsx'
+import Pagamentos from './components/pagamentos/Pagamentos.jsx'
 import MasterCondominios from './components/master/MasterCondominios.jsx'
 import { acessosDoUsuario, temAcesso } from './utils/permissoes.js'
 
@@ -88,6 +89,9 @@ export default function App() {
           <Route path="/configuracoes" element={<Configuracoes />} />
         )}
         {temAcesso(userProfile, 'mural') && <Route path="/mural" element={<Mural />} />}
+        {temAcesso(userProfile, 'pagamentos') && (
+          <Route path="/pagamentos/*" element={<Pagamentos />} />
+        )}
         <Route path="*" element={<Navigate to={homePath} replace />} />
       </Route>
     </Routes>

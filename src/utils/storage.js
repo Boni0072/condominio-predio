@@ -45,6 +45,18 @@ export function formatCurrency(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0)
 }
 
+// Rótulo das barras do gráfico Orçado x realizado: valor integral em R$
+// (ex.: 15000 → "R$ 15.000,00"). Com { simbolo: false } remove o prefixo
+// "R$" (ex.: 15000 → "15.000") e com { escala: 1000 } divide o valor por 1000
+// (ex.: 15000 → "15") — usado no gráfico Orçado x realizado do painel.
+export function formatRotuloGrafico(value, { simbolo = true, escala = 1 } = {}) {
+  const numero = (Number(value) || 0) / (escala || 1)
+  if (numero <= 0) return ''
+  const maxFrac = escala > 1 ? 1 : 0
+  if (!simbolo) return numero.toLocaleString('pt-BR', { maximumFractionDigits: maxFrac })
+  return numero.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: maxFrac })
+}
+
 export function getCurrentMonth() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`

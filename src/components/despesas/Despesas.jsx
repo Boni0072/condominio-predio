@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { formatDate, getMonthKey } from '../../utils/storage.js'
 import { somaAprovacoesMes, aprovacoesDoMes } from '../orcamento/orcamentoUtils.js'
+import { veTodosOsRegistros } from '../../utils/permissoes.js'
 
 const CATEGORIAS = [
   { id: 'manutencao', label: 'Manutenção', icon: '🔧' },
@@ -14,6 +15,7 @@ const CATEGORIAS = [
   { id: 'jardinagem', label: 'Jardinagem', icon: '🌿' },
   { id: 'piscina', label: 'Piscina', icon: '🏊' },
   { id: 'elevador', label: 'Elevador', icon: '🛗' },
+  { id: 'folha_pagamento', label: 'Folha de Pagamento', icon: '💼' },
   { id: 'outros', label: 'Outros', icon: '📦' }
 ]
 
@@ -27,6 +29,19 @@ const TIPOS_COMPROVANTE = [
   { id: 'recibo', label: 'Recibo' },
   { id: 'cupom', label: 'Cupom fiscal' }
 ]
+
+const NOMES_MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+]
+
+// Rótulo da separação por mês da lista de despesas ("2026-09" → "Setembro de 2026").
+function rotuloMes(chave) {
+  if (!chave || chave === 'sem-data') return 'Sem data'
+  const [ano, mes] = String(chave).split('-').map(Number)
+  if (!ano || !mes) return 'Sem data'
+  return `${NOMES_MESES[mes - 1] || mes} de ${ano}`
+}
 
 function arquivoParaDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -55,9 +70,10 @@ function arquivoParaDataUrl(file) {
   })
 }
 
-function DespesaForm({ editando, onConcluir }) {
-  const { registrarDespesa, atualizarDespesa, orcamentos } = useApp()
-  const [form, setForm] = useState(editando || {
+// Estado inicial do formulário de nova despesa (função para permitir limpar
+// o formulário depois de registrar — data sempre "hoje" no momento do reset).
+function formVazio() {
+  return {
     descricao: '',
     valor: '',
     categoria: 'manutencao',
@@ -71,10 +87,18 @@ function DespesaForm({ editando, onConcluir }) {
     comprovanteAntes: '',
     comprovanteDepois: '',
     observacoes: ''
-  })
+  }
+}
+
+function DespesaForm({ editando, onConcluir }) {
+  const { registrarDespesa, atualizarDespesa, orcamentos } = useApp()
+  const [form, setForm] = useState(editando || formVazio())
   const [erro, setErro] = useState('')
   const [processando, setProcessando] = useState(false)
   const [itemOrcamento, setItemOrcamento] = useState('')
+  // Incrementado após cada registro para remontar os <input type="file"> e
+  // limpar também o nome do arquivo escolhido (eles são não controlados).
+  const [tickArquivos, setTickArquivos] = useState(0)
   const inputRef = useRef(null)
 
   function handleChange(e) {
@@ -138,10 +162,16 @@ function DespesaForm({ editando, onConcluir }) {
 
     if (editando) {
       atualizarDespesa(editando.id, dados)
-    } else {
-      registrarDespesa(dados)
+      onConcluir()
+      return
     }
-    onConcluir()
+    registrarDespesa(dados)
+    // Nova despesa registrada: limpa o formulário para a próxima entrada
+    // (campos, item do orçamento, fotos/comprovantes e erro anterior).
+    setForm(formVazio())
+    setItemOrcamento('')
+    setErro('')
+    setTickArquivos((tick) => tick + 1)
   }
 
   return (
@@ -198,7 +228,7 @@ function DespesaForm({ editando, onConcluir }) {
             {[{ campo: 'comprovanteAntes', label: 'Antes' }, { campo: 'comprovanteDepois', label: 'Depois' }].map(({ campo, label }) => (
               <div className="comprovante-etapa" key={campo}>
                 <span className="field-help">Foto {label}</span>
-                <input type="file" accept="image/*" onChange={(e) => handleComprovante(e, campo)} />
+                <input key={`${campo}-${tickArquivos}`} type="file" accept="image/*" onChange={(e) => handleComprovante(e, campo)} />
                 {processando && <span className="foto-status">Processando...</span>}
                 {form[campo] && !processando && (
                   <div className="comprovante-preview">
@@ -215,7 +245,7 @@ function DespesaForm({ editando, onConcluir }) {
           <select value={form.comprovantePagamentoTipo || form.comprovanteTipo || 'nota'} onChange={(e) => setForm((f) => ({ ...f, comprovantePagamentoTipo: e.target.value }))}>
             {TIPOS_COMPROVANTE.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.label}</option>)}
           </select>
-          <input type="file" accept="image/*" onChange={(e) => handleComprovante(e, 'comprovantePagamento')} />
+          <input key={`pagamento-${tickArquivos}`} type="file" accept="image/*" onChange={(e) => handleComprovante(e, 'comprovantePagamento')} />
           {processando && <span className="foto-status">Processando...</span>}
           {(form.comprovantePagamento || form.comprovante) && !processando && (
             <div className="comprovante-preview">
@@ -315,7 +345,15 @@ export default function Despesas() {
   const [busca, setBusca] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [periodoMes, setPeriodoMes] = useState('')
+  // Separação por mês + grupos de categoria da lista "N despesa(s)":
+  // tudo inicia RECOLHIDO.
+  const [mesesExpandidos, setMesesExpandidos] = useState(() => new Set())
+  const [categoriasExpandidas, setCategoriasExpandidas] = useState(() => new Set())
   const somenteLeitura = userProfile?.role === 'morador'
+  // Agrupamento por mês (+ categorias) é só para os gestores (síndico, zelador
+  // e portaria). Morador e conselheiro veem a lista simples, sem recolher/
+  // expandir por mês — mesma regra de privacidade de utils/permissoes.js.
+  const agruparPorMes = veTodosOsRegistros(userProfile)
 
   const despesasFiltradas = despesas
     .filter((d) => {
@@ -327,6 +365,75 @@ export default function Despesas() {
     .sort((a, b) => new Date(b.data || b.criadoEm) - new Date(a.data || a.criadoEm))
 
   const total = despesasFiltradas.reduce((acc, d) => acc + d.valor, 0)
+
+  // Separação por mês: mês (mais recente primeiro) → categorias → despesas.
+  // Despesas com categoria desconhecida caem em "outros" (mesma regra do
+  // DespesaItem); sem data válida entram no grupo "sem-data".
+  const gruposPorMes = (() => {
+    if (!agruparPorMes) return []
+    const mapa = new Map()
+    despesasFiltradas.forEach((despesa) => {
+      const chaveMes = getMonthKey(despesa.data || despesa.criadoEm) || 'sem-data'
+      if (!mapa.has(chaveMes)) mapa.set(chaveMes, { chave: chaveMes, categorias: new Map(), totalMes: 0 })
+      const mes = mapa.get(chaveMes)
+      mes.totalMes += Number(despesa.valor) || 0
+      const categoria = CATEGORIAS.find((c) => c.id === despesa.categoria) || CATEGORIAS[CATEGORIAS.length - 1]
+      if (!mes.categorias.has(categoria.id)) mes.categorias.set(categoria.id, { ...categoria, itens: [], totalGrupo: 0 })
+      const grupo = mes.categorias.get(categoria.id)
+      grupo.itens.push(despesa)
+      grupo.totalGrupo += Number(despesa.valor) || 0
+    })
+    return [...mapa.values()]
+      .sort((a, b) => {
+        if (a.chave === 'sem-data') return 1
+        if (b.chave === 'sem-data') return -1
+        return String(b.chave).localeCompare(String(a.chave))
+      })
+      .map((mes) => ({
+        chave: mes.chave,
+        rotulo: rotuloMes(mes.chave),
+        totalMes: mes.totalMes,
+        // Mantém a ordem canônica das categorias, ignorando as sem despesa.
+        grupos: CATEGORIAS.filter((categoria) => mes.categorias.has(categoria.id)).map((categoria) => mes.categorias.get(categoria.id))
+      }))
+  })()
+
+  const mesAberto = (chave) => mesesExpandidos.has(chave)
+  function alternarMes(chave) {
+    setMesesExpandidos((atual) => {
+      const proximo = new Set(atual)
+      if (proximo.has(chave)) proximo.delete(chave)
+      else proximo.add(chave)
+      return proximo
+    })
+  }
+
+  // Chave única da categoria dentro do mês (ex.: "2026-09:limpeza").
+  const chaveCategoria = (mes, categoriaId) => `${mes}:${categoriaId}`
+  const categoriaAberta = (mes, categoriaId) => categoriasExpandidas.has(chaveCategoria(mes, categoriaId))
+  function alternarCategoria(mes, categoriaId) {
+    const chave = chaveCategoria(mes, categoriaId)
+    setCategoriasExpandidas((atual) => {
+      const proximo = new Set(atual)
+      if (proximo.has(chave)) proximo.delete(chave)
+      else proximo.add(chave)
+      return proximo
+    })
+  }
+
+  const todasAbertas = gruposPorMes.length > 0
+    && gruposPorMes.every((mes) => mesAberto(mes.chave) && mes.grupos.every((grupo) => categoriaAberta(mes.chave, grupo.id)))
+  function alternarTodas() {
+    if (todasAbertas) {
+      setMesesExpandidos(new Set())
+      setCategoriasExpandidas(new Set())
+      return
+    }
+    setMesesExpandidos(new Set(gruposPorMes.map((mes) => mes.chave)))
+    setCategoriasExpandidas(new Set(
+      gruposPorMes.flatMap((mes) => mes.grupos.map((grupo) => chaveCategoria(mes.chave, grupo.id)))
+    ))
+  }
 
   return (
     <div className="page">
@@ -382,12 +489,87 @@ export default function Despesas() {
         </div>
         {despesasFiltradas.length === 0 ? (
           <p className="empty">Nenhuma despesa encontrada.</p>
+        ) : !agruparPorMes ? (
+          // Morador e conselheiro: lista simples, sem agrupamento por mês.
+          <>
+            <div className="despesas-acoes">
+              <span className="field-help">
+                {despesasFiltradas.length} despesa(s) · lista simples
+              </span>
+            </div>
+            <div className="despesas-lista">
+              {despesasFiltradas.map((d) => (
+                <DespesaItem key={d.id} despesa={d} onEditar={setEditando} somenteLeitura={somenteLeitura} />
+              ))}
+            </div>
+          </>
         ) : (
-          <div className="despesas-lista">
-            {despesasFiltradas.map((d) => (
-              <DespesaItem key={d.id} despesa={d} onEditar={setEditando} somenteLeitura={somenteLeitura} />
-            ))}
-          </div>
+          <>
+            <div className="despesas-acoes">
+              <span className="field-help">{gruposPorMes.length} mês(es) · iniciam recolhidos</span>
+              <button type="button" className="btn btn-ghost btn-small" onClick={alternarTodas} aria-expanded={todasAbertas}>
+                {todasAbertas ? 'Recolher tudo' : 'Expandir tudo'}
+              </button>
+            </div>
+            <div className="despesas-lista">
+              {gruposPorMes.map((mes) => {
+                const aberto = mesAberto(mes.chave)
+                return (
+                  <section key={mes.chave} className={`despesa-mes${aberto ? ' aberta' : ''}`}>
+                    <button
+                      type="button"
+                      className="despesa-mes-cabecalho"
+                      onClick={() => alternarMes(mes.chave)}
+                      aria-expanded={aberto}
+                      aria-label={`${aberto ? 'Recolher' : 'Expandir'} despesas de ${mes.rotulo}`}
+                    >
+                      <span className="despesa-grupo-nome">
+                        <strong>{aberto ? '▾' : '▸'} {mes.rotulo}</strong>
+                        <small>{mes.grupos.reduce((acc, grupo) => acc + grupo.itens.length, 0)} despesa(s)</small>
+                      </span>
+                      <span className="despesa-grupo-valor">
+                        R$ {mes.totalMes.toFixed(2).replace('.', ',')}
+                      </span>
+                    </button>
+                    {aberto && (
+                      <div className="despesa-mes-conteudo">
+                        {mes.grupos.map((grupo) => {
+                          const aberta = categoriaAberta(mes.chave, grupo.id)
+                          return (
+                            <section key={grupo.id} className={`despesa-grupo${aberta ? ' aberta' : ''}`}>
+                              <button
+                                type="button"
+                                className="despesa-grupo-cabecalho"
+                                onClick={() => alternarCategoria(mes.chave, grupo.id)}
+                                aria-expanded={aberta}
+                                aria-label={`${aberta ? 'Recolher' : 'Expandir'} despesas de ${grupo.label}`}
+                              >
+                                <span className="despesa-grupo-nome">
+                                  <span className="despesa-icon">{grupo.icon}</span>
+                                  <strong>{grupo.label} ({grupo.itens.length})</strong>
+                                </span>
+                                <span className="despesa-grupo-valor">
+                                  R$ {grupo.totalGrupo.toFixed(2).replace('.', ',')}
+                                  <i aria-hidden="true">{aberta ? '▾' : '▸'}</i>
+                                </span>
+                              </button>
+                              {aberta && (
+                                <div className="despesa-grupo-itens">
+                                  {grupo.itens.map((d) => (
+                                    <DespesaItem key={d.id} despesa={d} onEditar={setEditando} somenteLeitura={somenteLeitura} />
+                                  ))}
+                                </div>
+                              )}
+                            </section>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 

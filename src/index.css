@@ -62,6 +62,12 @@ body,
   height: 100%;
 }
 
+html {
+  /* Base 30% maior: como quase todo o app usa unidades rem, isso amplia
+     todos os textos proporcionalmente (16px → 20.8px). */
+  font-size: 130%;
+}
+
 body {
   margin: 0;
   background: var(--paper);
@@ -836,19 +842,20 @@ a {
   }
 
   .barra {
-    width: 12px;
+    width: 18px;
     min-height: 0;
   }
 
   .barra::after {
-    font-size: 11px;
-    white-space: normal;
-    word-break: break-all;
+    font-size: 10px;
+    white-space: nowrap;
     bottom: calc(100% + 2px);
   }
 
   .barra-orcado::after,
-  .barra-realizado::after {
+  .barra-cobrancas::after,
+  .barra-realizado::after,
+  .barra-saldo::after {
     font-size: 11px;
   }
 
@@ -872,7 +879,7 @@ a {
   }
 
   .barra {
-    width: 10px;
+    width: 16px;
   }
 
   .barra::after {
@@ -881,7 +888,9 @@ a {
   }
 
   .barra-orcado::after,
-  .barra-realizado::after {
+  .barra-cobrancas::after,
+  .barra-realizado::after,
+  .barra-saldo::after {
     font-size: 10px;
   }
 
@@ -1164,17 +1173,24 @@ a {
   }
 
   .barra {
-    width: 10px;
+    width: 16px;
   }
 
   .barra::after {
     font-size: 10px;
     bottom: calc(100% + 1px);
-    white-space: normal;
-    word-break: break-all;
+    white-space: nowrap;
   }
 
   .barra-realizado::after {
+    font-size: 10px;
+  }
+
+  .barra-cobrancas::after {
+    font-size: 10px;
+  }
+
+  .barra-saldo::after {
     font-size: 10px;
   }
 
@@ -2031,6 +2047,95 @@ a {
 .despesas-lista {
   max-height: 500px;
   overflow-y: auto;
+}
+
+/* Lista de despesas agrupada por mês e categoria (inicia recolhida). */
+.despesas-acoes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.despesa-mes + .despesa-mes {
+  margin-top: 10px;
+}
+
+button.despesa-mes-cabecalho,
+button.despesa-grupo-cabecalho {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+button.despesa-mes-cabecalho {
+  background: var(--paper);
+  font-size: 16.2px;
+}
+
+button.despesa-mes-cabecalho:hover,
+button.despesa-mes-cabecalho:focus-visible,
+button.despesa-grupo-cabecalho:hover,
+button.despesa-grupo-cabecalho:focus-visible {
+  border-color: var(--blue);
+}
+
+.despesa-mes-cabecalho small {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  font-weight: 400;
+}
+
+.despesa-mes-conteudo {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 0 12px;
+}
+
+.despesa-grupo + .despesa-grupo {
+  margin-top: 0;
+}
+
+.despesa-grupo-nome {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.despesa-grupo-nome .despesa-icon {
+  font-size: 17.6px;
+  width: auto;
+}
+
+.despesa-grupo-valor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 15.6px;
+  white-space: nowrap;
+}
+
+.despesa-grupo-valor i {
+  font-style: normal;
+  color: var(--blue);
+}
+
+.despesa-grupo-itens {
+  padding-top: 6px;
 }
 
 .login-ajuda {
@@ -3121,6 +3226,7 @@ a {
 
 .orcamento-legenda {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   color: var(--ink-soft);
   font-size: 14.3px;
@@ -3141,7 +3247,7 @@ a {
 
 .legenda-orcado,
 .barra-orcado {
-  background: var(--brass);
+  background: #6fbf73;
 }
 
 .legenda-realizado,
@@ -3149,19 +3255,29 @@ a {
   background: var(--blue);
 }
 
+.legenda-saldo,
+.barra-saldo {
+  background: #e8912d;
+}
+
+.legenda-cobrancas,
+.barra-cobrancas {
+  background: #8b63bd;
+}
+
 .orcamento-grafico {
   display: grid;
-  grid-template-columns: repeat(12, minmax(34px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(12, minmax(110px, 1fr));
+  gap: 10px;
   align-items: end;
-  min-height: 250px;
-  padding: 24px 8px 0;
+  min-height: 290px;
+  padding: 90px 8px 0;
   overflow-x: auto;
 }
 
 .orcamento-mes {
-  min-width: 34px;
-  height: 220px;
+  min-width: 110px;
+  height: 250px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3177,29 +3293,39 @@ a {
   filter: brightness(0.88);
 }
 
+/* Alerta: orçado maior que as cobranças do mês → rótulo do eixo do mês
+   com texto vermelho vivo e fundo vermelho claro (não pinta a coluna). */
+.orcamento-mes.orcamento-mes-alerta strong {
+  color: #ff1f1f;
+  background: #fdecea;
+  border-radius: var(--radius-s);
+  box-shadow: inset 0 0 0 1px rgba(255, 31, 31, 0.35);
+  padding: 2px 8px;
+}
+
 .orcamento-barras {
   height: 180px;
   width: 100%;
   display: flex;
   align-items: end;
   justify-content: center;
-  gap: 3px;
+  gap: 6px;
   border-bottom: 1px solid var(--line);
 }
 
 .barra {
   position: relative;
-  width: 14px;
+  width: 22px;
   min-height: 0;
   border-radius: 3px 3px 0 0;
   transition: filter 0.15s ease;
 }
 
-/* Rótulo de datos: mostra o valor sobre a barra (Orçado / Realizado) */
+/* Rótulo de dados: sempre visível sobre cada barra, escalonado em 4 alturas
+   (uma por barra) para nunca sobrepor a coluna vizinha. */
 .barra::after {
   content: attr(data-rotulo);
   position: absolute;
-  bottom: calc(100% + 3px);
   left: 50%;
   transform: translateX(-50%);
   font-size: 14.3px;
@@ -3208,14 +3334,27 @@ a {
   white-space: nowrap;
   pointer-events: none;
   color: var(--ink);
+  z-index: 2;
+}
+
+.barra-cobrancas::after {
+  bottom: calc(100% + 3px);
+  color: #6f45a3;
 }
 
 .barra-orcado::after {
-  color: var(--brass-dark);
+  bottom: calc(100% + 20px);
+  color: #4c9a50;
 }
 
 .barra-realizado::after {
+  bottom: calc(100% + 37px);
   color: var(--blue);
+}
+
+.barra-saldo::after {
+  bottom: calc(100% + 54px);
+  color: #b96a12;
 }
 
 .barra-estourada {
@@ -3239,7 +3378,7 @@ a {
 
 .orcamento-modal-resumo {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -3265,8 +3404,78 @@ a {
   font-size: 19.5px;
 }
 
+.orcamento-modal-resumo small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+}
+
+
+@media (max-width: 560px) {
+  .orcamento-modal-resumo {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .orcamento-modal-resumo .estourado strong {
   color: var(--brick);
+}
+
+/* ---------- Aprovadores do mês (modal Orçado x realizado) ---------- */
+
+.orcamento-aprovadores-bloco {
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+}
+
+.orcamento-aprovadores-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.orcamento-aprovadores-toggle span {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  white-space: nowrap;
+}
+
+.orcamento-aprovadores-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.orcamento-aprovadores-lista li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--paper);
+  border-radius: var(--radius-s);
+  font-size: 14.3px;
+}
+
+.orcamento-aprovadores-lista li span {
+  font-weight: 600;
+}
+
+.orcamento-aprovadores-lista li small {
+  color: var(--ink-soft);
+  white-space: nowrap;
 }
 
 /* ---------- Administracao master ---------- */
@@ -4226,6 +4435,33 @@ a {
   align-items: center;
 }
 
+/* Detalhamento do mês: grupos de despesa recolhíveis (iniciam recolhidos). */
+.orcamento-detalhes-acoes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button.orcamento-detalhe-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-top: 4px;
+  cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  border-radius: var(--radius-s);
+}
+
+button.orcamento-detalhe-toggle:hover,
+button.orcamento-detalhe-toggle:focus-visible {
+  color: var(--blue);
+}
+
 .orcamento-detalhe-cabecalho span,
 .orcamento-gasto strong {
   color: var(--ink-soft);
@@ -4876,4 +5112,887 @@ button.orcamento-gasto:focus-visible {
   gap: 2px;
   color: var(--ink-soft);
   font-size: 13.5px;
+}
+
+/* ---------- Pagamentos ---------- */
+
+.pagamentos-nav {
+  margin: 0 0 20px;
+  padding: 0 16px;
+}
+
+.pagamentos-links {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.pagamentos-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  text-decoration: none;
+  color: var(--ink);
+  font-weight: 500;
+  transition: all 0.15s ease;
+  min-width: 180px;
+}
+
+.pagamentos-link:hover {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  transform: translateY(-1px);
+}
+
+/* Aba ativa da navegação interna de Pagamentos (NavLink do React Router) */
+.pagamentos-link.ativo {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  color: var(--brass-dark);
+  font-weight: 600;
+}
+
+/* Cartões usados pelas telas de Pagamentos (mesmo visual de .panel) */
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 20px;
+}
+
+.card-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card-header h3 {
+  font-size: 17.6px;
+  font-weight: 600;
+}
+
+.card-body {
+  padding: 16px 20px;
+}
+
+.card-body > * + * {
+  margin-top: 12px;
+}
+
+.card-body .empty,
+.card-body .loading {
+  padding: 24px 8px;
+}
+/* Boletos lista */
+
+.boletos-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Recolhimento da lista de boletos: mês → pagos/não pagos (inicia recolhido). */
+.boletos-acoes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.boleto-mes + .boleto-mes {
+  margin-top: 10px;
+}
+
+button.boleto-mes-cabecalho,
+button.boleto-grupo-cabecalho {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+button.boleto-mes-cabecalho {
+  background: var(--paper);
+  font-size: 16.2px;
+}
+
+button.boleto-mes-cabecalho:hover,
+button.boleto-mes-cabecalho:focus-visible,
+button.boleto-grupo-cabecalho:hover,
+button.boleto-grupo-cabecalho:focus-visible {
+  border-color: var(--blue);
+}
+
+button.boleto-grupo-cabecalho.pagos {
+  background: var(--green-soft);
+}
+
+button.boleto-grupo-cabecalho.nao-pagos {
+  background: var(--brick-soft);
+}
+
+.boleto-mes-cabecalho small {
+  color: var(--ink-soft);
+  font-size: 14.3px;
+  font-weight: 400;
+}
+
+.boleto-grupo-nome {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.boleto-grupo-valor {
+  color: var(--ink-soft);
+  font-size: 15.6px;
+  white-space: nowrap;
+}
+
+.boleto-mes-conteudo {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 0 12px;
+}
+
+.boleto-grupo .boletos-lista {
+  margin-top: 8px;
+}
+
+.boleto-grupo .empty {
+  padding: 4px 0;
+}
+
+.boleto-item {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  align-items: flex-start;
+}
+
+.boleto-info {
+  flex: 1;
+}
+
+.boleto-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.boleto-header strong {
+  font-size: 15px;
+}
+
+.boleto-dados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.boleto-dados strong {
+  color: var(--ink);
+}
+
+.boleto-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Badge adicionais */
+
+.badge-purple {
+  background: var(--brass);
+  color: var(--brass-contrast);
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.badge-orange {
+  background: var(--brick-soft);
+  color: var(--brick);
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-blue {
+  background: var(--blue-soft);
+  color: var(--blue);
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-green {
+  background: var(--green-soft);
+  color: var(--green);
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-gray {
+  background: var(--paper);
+  color: var(--ink-soft);
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Formulários */
+
+.form-nova-conta {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.form-novo-boleto {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--brass);
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 200px;
+}
+
+.status-visor {
+  padding: 10px;
+  background: var(--paper);
+  border-radius: var(--radius-s);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+}
+
+/* Alerta genérico */
+
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--radius-s);
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.alert-success {
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+
+.alert-danger {
+  background: var(--brick-soft);
+  color: var(--brick);
+  border: 1px solid var(--brick);
+}
+
+.alert-info {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 1px solid var(--blue);
+}
+
+/* Filtros header */
+
+.filtros-header {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.input-busca {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  min-width: 150px;
+}
+
+.input-busca:focus {
+  outline: none;
+  border-color: var(--brass);
+}
+
+.select-filtro {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+.filtro-periodo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.filtro-periodo input {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+}
+
+/* Loading e empty states */
+
+.loading {
+  padding: 40px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.empty p {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.empty span {
+  font-size: 13px;
+}
+
+/* Botões */
+
+.btn-danger {
+  color: var(--brick);
+}
+
+.btn-danger:hover {
+  background: var(--brick-soft);
+}
+
+.boleto-pix {
+  width: 200px;
+  padding: 12px;
+  background: var(--green-soft);
+  border-radius: var(--radius-m);
+  text-align: center;
+}
+
+.qr-pix {
+  margin-top: 8px;
+}
+
+.qr-placeholder {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.qr-text {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.pix-info {
+  font-size: 12px;
+}
+
+.pix-info .label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+}
+
+.pix-chave {
+  display: block;
+  padding: 8px;
+  background: var(--paper);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-s);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* Contas bancárias */
+
+.contas-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conta-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+
+.conta-info {
+  flex: 1;
+}
+
+.conta-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.conta-header strong {
+  font-size: 15px;
+}
+
+.conta-dados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.conta-dados strong {
+  color: var(--ink);
+}
+
+.conta-obs {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--brass-soft);
+  border-radius: var(--radius-s);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.conta-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.link-icon {
+  font-size: 20px;
+}
+
+.link-text {
+  font-size: 14px;
+}
+
+/* Resumo de boletos */
+
+.resumo-boletos {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: var(--paper-raised);
+  border-radius: var(--radius-s);
+}
+
+.resumo-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.resumo-item strong {
+  font-size: 16px;
+}
+
+.text-green { color: var(--green); }
+.text-orange { color: var(--brick); }
+
+.resumo-pagamentos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resumo-alerta {
+  padding: 10px 16px;
+  background: var(--brick-soft);
+  color: var(--brick);
+  border-radius: var(--radius-s);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Alertas por tipo de mensagem */
+
+.alert-error {
+  background: var(--brick-soft);
+  color: var(--brick);
+  border-left: 3px solid var(--brick);
+}
+
+.alert-success {
+  background: var(--green-soft);
+  color: var(--green);
+  border-left: 3px solid var(--green);
+}
+
+/* Bloco de PIX (chave e copia e cola) */
+
+.pix-caixa,
+.pix-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--green-soft);
+  border-radius: var(--radius-m);
+}
+
+.pix-dado {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pix-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.pix-dado strong {
+  font-size: 15px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.pix-acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* QR Code do PIX (BR Code lido pelo app do banco) */
+
+.pix-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #fff;
+  border-radius: var(--radius-m);
+  align-self: center;
+}
+
+.pix-qr .pix-label {
+  text-align: center;
+  max-width: 220px;
+}
+
+/* Observação dentro do item de boleto */
+
+.boleto-obs {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.boleto-status-final {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+/* Área de texto padrão dos formulários */
+
+.textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper-raised);
+  resize: vertical;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--brass);
+  box-shadow: 0 0 0 3px var(--brass-tint-24);
+}
+
+/* ---------- Boleto do morador (modal + versão para impressão) ---------- */
+/* O boleto é montado no navegador a partir da cobrança + dos dados bancários
+   cadastrados pelo síndico: nada é gravado no Firestore. "Baixar boleto" usa a
+   janela de impressão do navegador, que já permite salvar como PDF. */
+
+.modal-boleto {
+  max-width: 640px;
+  /* O modal inteiro não rola: o corpo rola e o rodapé de ações fica sempre
+     visível (em telas baixas os botões ficavam cortados e não recebiam toque). */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 100%;
+}
+
+.modal-boleto .modal-header {
+  flex: 0 0 auto;
+}
+
+.modal-boleto .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-boleto-acoes {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--paper-raised);
+}
+
+.boleto-aviso {
+  flex: 1 1 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.boleto-aviso.erro {
+  color: var(--brick);
+}
+
+.boleto-impressao {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: #fff;
+  color: var(--ink);
+}
+
+.boleto-impressao-topo,
+.boleto-impressao-grade {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.boleto-impressao-topo > div,
+.boleto-impressao-grade > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.boleto-impressao-codigo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+}
+
+.boleto-linha-digitavel {
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+.boleto-barras {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  height: 40px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+
+.boleto-barras .barra-escura {
+  background: var(--ink);
+}
+
+.boleto-barras .barra-clara {
+  background: transparent;
+}
+
+.boleto-codigo-barras {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+}
+
+/* Botões menores no rodapé do boleto: cabem em 2 linhas no celular sem
+   empurrar o conteúdo para fora da tela. */
+.modal-boleto-acoes .btn {
+  padding: 8px 12px;
+  font-size: 15px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .boleto-impressao,
+  .boleto-impressao * {
+    visibility: visible;
+  }
+
+  .boleto-impressao {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none;
+  }
+
+  .boleto-nao-imprimir,
+  .modal-fechar {
+    display: none !important;
+  }
+
+  .modal-overlay {
+    position: static;
+    background: none;
+    padding: 0;
+  }
+
+  .modal,
+  .modal-boleto {
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+  }
+
+  .modal-boleto .modal-body {
+    overflow: visible;
+    display: block;
+  }
 }

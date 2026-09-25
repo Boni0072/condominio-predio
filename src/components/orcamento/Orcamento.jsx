@@ -2,8 +2,10 @@ import React, { useMemo, useState } from 'react'
 import { useApp } from '../../context/AppContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import AssinaturaModal from './AssinaturaModal.jsx'
-import { formatCurrency, formatDate, formatDateTime, getMonthKey } from '../../utils/storage.js'
+import { formatCurrency, formatDate, formatDateTime, formatRotuloGrafico, getMonthKey } from '../../utils/storage.js'
 import { chavePrevisto, previstoIdDe, aprovacoesDoMes, iconesAprovadosDOIxa, resumoVotosItem, registrosDoItem, somaAprovacoesMes } from './orcamentoUtils.js'
+import { useCobrancas } from '../pagamentos/useCobrancas.js'
+import { resumoCobrancasDoMes } from '../pagamentos/cobrancas.js'
 import { temAcesso } from '../../utils/permissoes.js'
 
 const CATEGORIAS = [
@@ -16,6 +18,7 @@ const CATEGORIAS = [
   { id: 'jardinagem', label: 'Jardinagem', icon: '🌿' },
   { id: 'piscina', label: 'Piscina', icon: '🏊' },
   { id: 'elevador', label: 'Elevador', icon: '🛗' },
+  { id: 'folha_pagamento', label: 'Folha de Pagamento', icon: '💼' },
   { id: 'outros', label: 'Outros', icon: '📦' }
 ]
 
@@ -34,9 +37,38 @@ function dinheiro(valor) {
   return formatCurrency(Number(valor) || 0)
 }
 
-export function OrcamentoModal({ mes, ano, orcado, despesas, onFechar, orcamentosDoAno = [], aprovacoes = [] }) {
+export function OrcamentoModal({
+  mes,
+  ano,
+  orcado,
+  despesas,
+  resumoCobrancas = { quantidade: 0, pagas: 0, total: 0 },
+  onFechar,
+  orcamentosDoAno = [],
+  aprovacoes = []
+}) {
   const [despesaDetalhada, setDespesaDetalhada] = useState(null)
+  const [aprovadoresAbertos, setAprovadoresAbertos] = useState(false)
+  // Categorias de despesa recolhidas/abertas no detalhamento. Inicia TODAS
+  // recolhidas (Set vazio de expandidas) para não abrir um modal gigante.
+  const [categoriasExpandidas, setCategoriasExpandidas] = useState(() => new Set())
   const realizado = despesas.reduce((total, despesa) => total + (Number(despesa.valor) || 0), 0)
+  // Aprovadores do mês: assinaturas distintas (mesma regra que valida o mês
+  // na tela de Orçamento — ≥3 aprovadores). Lista mostra nome + data/hora.
+  const aprovadoresDoMes = (() => {
+    const mapa = new Map()
+    aprovacoesDoMes(aprovacoes, ano, mes).forEach((a) => {
+      const chave = a.usuarioId || a.usuarioEmail || a.usuarioNome || a.id
+      if (!chave || mapa.has(chave)) return
+      mapa.set(chave, {
+        chave,
+        nome: a.usuarioNome || a.usuarioEmail || 'Usuário',
+        papel: a.usuarioRole || '',
+        criadoEm: a.criadoEm || ''
+      })
+    })
+    return [...mapa.values()].sort((x, y) => new Date(x.criadoEm || 0) - new Date(y.criadoEm || 0))
+  })()
   const orcadoCategoria = despesaDetalhada
     ? (() => {
       const orcamentoCat = orcamentosDoAno.find((item) => Number(item.mes) === Number(mes) && item.categoria === despesaDetalhada.categoria)
@@ -53,6 +85,21 @@ export function OrcamentoModal({ mes, ano, orcado, despesas, onFechar, orcamento
     }
   }).filter((categoria) => categoria.itens.length > 0)
 
+  // Controle de recolhimento por categoria de despesa (detalhamento do mês).
+  const categoriaAberta = (id) => categoriasExpandidas.has(id)
+  function alternarCategoria(id) {
+    setCategoriasExpandidas((atual) => {
+      const proximo = new Set(atual)
+      if (proximo.has(id)) proximo.delete(id)
+      else proximo.add(id)
+      return proximo
+    })
+  }
+  const todasAbertas = porCategoria.length > 0 && porCategoria.every((categoria) => categoriaAberta(categoria.id))
+  function alternarTodas() {
+    setCategoriasExpandidas(todasAbertas ? new Set() : new Set(porCategoria.map((categoria) => categoria.id)))
+  }
+
   return (
     <div className="modal-overlay" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
       <div className="modal orcamento-modal" role="dialog" aria-modal="true" aria-labelledby="orcamento-modal-titulo">
@@ -66,20 +113,64 @@ export function OrcamentoModal({ mes, ano, orcado, despesas, onFechar, orcamento
         <div className="modal-body">
           <div className="orcamento-modal-resumo">
             <div><span>Orçado</span><strong>{dinheiro(orcado)}</strong></div>
+            <div>
+              <span>Comdôminio</span>
+              <strong>{dinheiro(resumoCobrancas?.total)}</strong>
+              <small>{resumoCobrancas?.quantidade || 0} emitida(s), {resumoCobrancas?.pagas || 0} paga(s), {Math.max(0, (resumoCobrancas?.quantidade || 0) - (resumoCobrancas?.pagas || 0))} não paga(s)</small>
+            </div>
             <div><span>Realizado</span><strong>{dinheiro(realizado)}</strong></div>
             <div className={diferenca < 0 ? 'estourado' : ''}><span>{diferenca < 0 ? 'Estourado' : 'Saldo'}</span><strong>{dinheiro(Math.abs(diferenca))}</strong></div>
+          </div>
+          <div className="orcamento-aprovadores-bloco">
+            <button
+              type="button"
+              className="orcamento-aprovadores-toggle"
+              onClick={() => setAprovadoresAbertos((aberto) => !aberto)}
+              aria-expanded={aprovadoresAbertos}
+            >
+              <strong>Aprovadores ({aprovadoresDoMes.length})</strong>
+              <span>{aprovadoresAbertos ? 'Recolher' : 'Ver aprovadores'}</span>
+            </button>
+            {aprovadoresAbertos && (
+              aprovadoresDoMes.length === 0 ? (
+                <p className="empty">Nenhum aprovador registrou assinatura neste mês.</p>
+              ) : (
+                <ul className="orcamento-aprovadores-lista">
+                  {aprovadoresDoMes.map((ap) => (
+                    <li key={ap.chave}>
+                      <span>✓ {ap.nome}{ap.papel ? ` · ${ap.papel}` : ''}</span>
+                      <small>{ap.criadoEm ? formatDateTime(ap.criadoEm) : '—'}</small>
+                    </li>
+                  ))}
+                </ul>
+              )
+            )}
           </div>
           {despesas.length === 0 ? (
             <p className="empty">Nenhum gasto lançado neste mês.</p>
           ) : (
             <div className="orcamento-detalhes">
-              {porCategoria.map((categoria) => (
-                <section key={categoria.id} className="orcamento-detalhe-categoria">
-                  <div className="orcamento-detalhe-cabecalho">
-                    <strong>{categoria.label}</strong>
+              <div className="orcamento-detalhes-acoes">
+                <span className="field-help">{porCategoria.length} grupo(s) de despesa(s) · iniciam recolhidos</span>
+                <button type="button" className="btn btn-ghost btn-small" onClick={alternarTodas} aria-expanded={todasAbertas}>
+                  {todasAbertas ? 'Recolher tudo' : 'Expandir tudo'}
+                </button>
+              </div>
+              {porCategoria.map((categoria) => {
+                const aberta = categoriaAberta(categoria.id)
+                return (
+                <section key={categoria.id} className={`orcamento-detalhe-categoria${aberta ? ' aberta' : ''}`}>
+                  <button
+                    type="button"
+                    className="orcamento-detalhe-cabecalho orcamento-detalhe-toggle"
+                    onClick={() => alternarCategoria(categoria.id)}
+                    aria-expanded={aberta}
+                    aria-label={`${aberta ? 'Recolher' : 'Expandir'} despesas de ${categoria.label}`}
+                  >
+                    <strong>{aberta ? '▾' : '▸'} {categoria.label} ({categoria.itens.length})</strong>
                     <span>{dinheiro(categoria.total)}</span>
-                  </div>
-                  {categoria.itens.map((despesa) => {
+                  </button>
+                  {aberta && categoria.itens.map((despesa) => {
                     const orcadoCategoriaMes = orcamentosDoAno.find((item) => item.categoria === categoria.id && Number(item.mes) === Number(mes))
                     const orcadoItem = orcadoCategoriaMes ? somaAprovacoesMes([orcadoCategoriaMes], aprovacoesDoMes(aprovacoes, ano, mes)) : 0
                     const acima = orcadoItem > 0 && (Number(despesa.valor) || 0) > orcadoItem
@@ -110,7 +201,8 @@ export function OrcamentoModal({ mes, ano, orcado, despesas, onFechar, orcamento
                     )
                   })}
                 </section>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -223,6 +315,7 @@ export default function Orcamento() {
     aprovacoes, erroAprovacao, aprovarOrcamento, removerAprovacaoOrcamento, alternarConviteAprovacao,
     podeAprovarOrcamento, podeConvidarAprovadores, usuarios
   } = useApp()
+  const { cobrancas } = useCobrancas()
   const anoAtual = new Date().getFullYear()
   const mesAtual = new Date().getMonth() + 1
   const [periodo, setPeriodo] = useState(`${anoAtual}-${String(mesAtual).padStart(2, '0')}`)
@@ -247,15 +340,22 @@ export default function Orcamento() {
     const chave = `${ano}-${String(mes).padStart(2, '0')}`
     const itensOrcados = orcamentosDoAno.filter((item) => Number(item.mes) === mes)
     const gastos = despesas.filter((despesa) => getMonthKey(despesa.data || despesa.criadoEm) === chave)
+    const resumoCobrancas = resumoCobrancasDoMes(cobrancas, chave)
+    const orcado = somaAprovacoesMes(itensOrcados, aprovacoesDoMes(aprovacoes, ano, mes))
+    const realizado = gastos.reduce((total, item) => total + (Number(item.valor) || 0), 0)
+    // Saldo disponível: o que sobrou do orçado após o realizado (nunca negativo).
+    const saldo = Math.max(0, orcado - realizado)
     return {
       mes,
       nome,
-      orcado: somaAprovacoesMes(itensOrcados, aprovacoesDoMes(aprovacoes, ano, mes)),
-      realizado: gastos.reduce((total, item) => total + (Number(item.valor) || 0), 0),
+      orcado,
+      realizado,
+      saldo,
+      resumoCobrancas,
       gastos
     }
-  }), [ano, orcamentosDoAno, despesas, aprovacoes])
-  const maiorValor = Math.max(1, ...meses.flatMap((item) => [item.orcado, item.realizado]))
+  }), [ano, orcamentosDoAno, despesas, aprovacoes, cobrancas])
+  const maiorValor = Math.max(1, ...meses.flatMap((item) => [item.orcado, item.realizado, item.saldo, item.resumoCobrancas.total]))
   const mesSelecionado = meses.find((item) => item.mes === mesDetalhado)
   const podeEditar = ['sindico', 'zelador'].includes(userProfile?.role)
   const podeAprovar = podeAprovarOrcamento()
@@ -759,24 +859,41 @@ export default function Orcamento() {
 
       <section className="card orcamento-grafico-card">
         <div className="panel-header">
-          <div><h3>Orçado x realizado</h3><p className="field-help">Clique em um mês para ver os gastos detalhados.</p></div>
-          <div className="orcamento-legenda"><span><i className="legenda-orcado" /> Orçado</span><span><i className="legenda-realizado" /> Realizado</span></div>
+          <div><h3>Orçado, cobranças e realizado</h3><p className="field-help">Clique em um mês para ver o resumo e os gastos detalhados.</p></div>
+          <div className="orcamento-legenda">
+            <span><i className="legenda-cobrancas" /> Cobranças do mês</span>
+            <span><i className="legenda-orcado" /> Orçado</span>
+            <span><i className="legenda-realizado" /> Realizado</span>
+            <span><i className="legenda-saldo" /> Saldo disponível</span>
+          </div>
         </div>
         <div className="orcamento-grafico">
           {meses.map((item) => (
             <button type="button" className="orcamento-mes" key={item.mes} onClick={() => setMesDetalhado(item.mes)} aria-label={`Ver detalhes de ${item.nome}`}>
               <div className="orcamento-barras">
                 <span
+                  className="barra barra-cobrancas"
+                  data-rotulo={formatRotuloGrafico(item.resumoCobrancas.total)}
+                  style={{ height: `${item.resumoCobrancas.total ? Math.max(5, (item.resumoCobrancas.total / maiorValor) * 100) : 0}%` }}
+                  title={`Cobranças do mês: ${dinheiro(item.resumoCobrancas.total)} (${item.resumoCobrancas.quantidade} emitida(s))`}
+                />
+                <span
                   className="barra barra-orcado"
-                  data-rotulo={item.orcado > 0 ? dinheiro(item.orcado) : ''}
+                  data-rotulo={formatRotuloGrafico(item.orcado)}
                   style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorValor) * 100) : 0}%` }}
                   title={`Orçado: ${dinheiro(item.orcado)}`}
                 />
                 <span
                   className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`}
-                  data-rotulo={item.realizado > 0 ? dinheiro(item.realizado) : ''}
+                  data-rotulo={formatRotuloGrafico(item.realizado)}
                   style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorValor) * 100) : 0}%` }}
                   title={`Realizado: ${dinheiro(item.realizado)}`}
+                />
+                <span
+                  className="barra barra-saldo"
+                  data-rotulo={formatRotuloGrafico(item.saldo)}
+                  style={{ height: `${item.saldo ? Math.max(5, (item.saldo / maiorValor) * 100) : 0}%` }}
+                  title={`Saldo disponível: ${dinheiro(item.saldo)}`}
                 />
               </div>
               <strong>{item.nome.slice(0, 3)}</strong>
@@ -786,7 +903,18 @@ export default function Orcamento() {
         </div>
       </section>
 
-      {mesSelecionado && <OrcamentoModal mes={mesSelecionado.mes} ano={ano} orcado={mesSelecionado.orcado} despesas={mesSelecionado.gastos} orcamentosDoAno={orcamentosDoAno} aprovacoes={aprovacoes} onFechar={() => setMesDetalhado(null)} />}
+      {mesSelecionado && (
+        <OrcamentoModal
+          mes={mesSelecionado.mes}
+          ano={ano}
+          orcado={mesSelecionado.orcado}
+          despesas={mesSelecionado.gastos}
+          resumoCobrancas={mesSelecionado.resumoCobrancas}
+          orcamentosDoAno={orcamentosDoAno}
+          aprovacoes={aprovacoes}
+          onFechar={() => setMesDetalhado(null)}
+        />
+      )}
 
       {firmaAberta && (
         <AssinaturaModal

@@ -17,6 +17,7 @@ import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 
 const ROLES = [
   { id: 'sindico', label: 'Síndico / Administração', color: 'badge-brick' },
+  { id: 'morador', label: 'Morador', color: 'badge-green' },
   { id: 'portaria', label: 'Portaria / Porteiro', color: 'badge-blue' },
   { id: 'zelador', label: 'Zelador', color: 'badge-blue' },
   { id: 'conselheiro', label: 'Conselheiro', color: 'badge-green' }
@@ -55,7 +56,11 @@ function dataExibicao(valor) {
 // Código sugerido de regras do Firestore para o síndico copiar
 function UsuarioForm({ editando, onConcluir, onSalvar }) {
   const { cadastrarUsuario } = useAuth()
-  const perfilInicial = editando?.role && ['portaria', 'zelador', 'conselheiro'].includes(editando.role) ? editando.role : 'portaria'
+  // Em edição, preserva o papel REAL do usuário (morador, síndico etc.).
+  // Antes só portaria/zelador/conselheiro eram reconhecidos e os demais
+  // caíam no fallback 'portaria': o select mostrava "Portaria / Porteiro"
+  // para moradores e, ao salvar, o role era sobrescrito no Firestore.
+  const perfilInicial = editando?.role || 'portaria'
   const [form, setForm] = useState({
     nome: '',
     email: '',
@@ -63,6 +68,8 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
     role: perfilInicial,
     unidade: '',
     whatsapp: '',
+    quartos: '1',
+    vagas: '0',
     acessos: [...(ACESSOS_POR_PERFIL[perfilInicial] || ACESSOS_POR_PERFIL.portaria)]
   })
   const [erro, setErro] = useState('')
@@ -79,13 +86,25 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         role: perfilInicial,
         unidade: editando.unidade || '',
         whatsapp: editando.whatsapp || '',
+        quartos: String(editando.quartos ?? 1),
+        vagas: String(editando.vagas ?? 0),
         acessos: editando.acessos || ACESSOS_POR_PERFIL[editando.role] || ACESSOS_POR_PERFIL.morador
       })
     } else {
-      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', acessos: [...ACESSOS_POR_PERFIL.portaria] })
+      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', quartos: '1', vagas: '0', acessos: [...ACESSOS_POR_PERFIL.portaria] })
     }
     setErro('')
   }, [editando])
+
+  // Em edição, o papel atual precisa aparecer como opção do <select> mesmo
+  // quando não é um perfil operacional de criação (ex.: morador ou síndico).
+  // Sem isso o select não teria opção válida e salvaria o perfil errado.
+  const perfisForm = editando && !PERFIS_FORM.some((p) => p.id === editando.role)
+    ? [
+        { id: editando.role, label: ROLES.find((r) => r.id === editando.role)?.label || editando.role },
+        ...PERFIS_FORM
+      ]
+    : PERFIS_FORM
 
   function handleChange(e) {
     const { name, value } = e.target
@@ -132,6 +151,8 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
           role: form.role,
           unidade: form.unidade.trim(),
           whatsapp: whatsappLimpo,
+          quartos: Math.max(0, Math.min(20, parseInt(form.quartos, 10) || 0)),
+          vagas: Math.max(0, Math.min(20, parseInt(form.vagas, 10) || 0)),
           acessos: form.acessos
         })
         window.alert('Usuário atualizado com sucesso.')
@@ -141,7 +162,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
       }
       onConcluir()
       setAberto(false)
-      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', acessos: [...ACESSOS_POR_PERFIL.portaria] })
+      setForm({ nome: '', email: '', senha: '', role: 'portaria', unidade: '', whatsapp: '', quartos: '1', vagas: '0', acessos: [...ACESSOS_POR_PERFIL.portaria] })
     } catch (err) {
       setErro(err?.code === 'permission-denied'
         ? 'Sem permissão para cadastrar usuários. Publique as regras do arquivo firestore.rules no Firestore e tente novamente.'
@@ -160,7 +181,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
         aria-controls="form-usuarios"
       >
         <span className="form-toggle-texto">
-          <strong>{editando ? 'Editar usuário operacional' : 'Cadastrar zelador ou porteiro'}</strong>
+          <strong>{editando ? (editando.role === 'morador' ? 'Editar morador' : 'Editar usuário operacional') : 'Cadastrar zelador ou porteiro'}</strong>
           <span className="form-toggle-ajuda">{aberto ? 'Clique para recolher' : 'Clique para abrir o formulário'}</span>
         </span>
         <span className="form-toggle-seta" aria-hidden="true">{aberto ? '▲' : '▼'}</span>
@@ -185,7 +206,7 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
           <div className="field">
             <label>Perfil de acesso</label>
             <select name="role" value={form.role} onChange={handleChange}>
-              {PERFIS_FORM.map((r) => (
+              {perfisForm.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
@@ -194,6 +215,34 @@ function UsuarioForm({ editando, onConcluir, onSalvar }) {
             <label>Bloco e apartamento *</label>
             <input name="unidade" value={form.unidade} onChange={handleChange} placeholder="Ex.: Bloco 2 Apto E10" required />
           </div>
+          {(form.role === 'morador' || form.role === 'conselheiro') && (
+            <div className="field">
+              <label>Quartos</label>
+              <input
+                name="quartos"
+                type="number"
+                min="0"
+                max="20"
+                value={form.quartos}
+                onChange={handleChange}
+                title="Studio/quitinete sem quarto: 0. Define o tipo de apartamento usado no rateio por metragem"
+              />
+            </div>
+          )}
+          {(form.role === 'morador' || form.role === 'conselheiro') && (
+            <div className="field">
+              <label>Vagas de garagem</label>
+              <input
+                name="vagas"
+                type="number"
+                min="0"
+                max="20"
+                value={form.vagas}
+                onChange={handleChange}
+                title="Vagas que definem o tipo de apartamento usado no rateio por metragem"
+              />
+            </div>
+          )}
           <div className="field">
             <label>WhatsApp (para notificações)</label>
             <input name="whatsapp" value={form.whatsapp} onChange={handleChange} placeholder="Ex.: (11) 98765-4321" />

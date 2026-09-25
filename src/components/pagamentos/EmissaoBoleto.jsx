@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../context/AppContext.jsx'
 import { db } from '../../firebase/config.js'
-import { collection, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc } from 'firebase/firestore'
 import { TIPOS_PAGAMENTO, STATUS_BOLETO, PERFIS_GESTORES_PAGAMENTO } from './tipos.js'
 import { formatarValorBoleto, formatarDataVencimento, gerarNossoNumero, statusEfetivo } from './boletoUtils.js'
-import { uid, nowISO, load, save } from '../../utils/storage.js'
-
-const chaveBoletos = (condominioId) => `${condominioId}_boletos`
+import { uid, nowISO } from '../../utils/storage.js'
+import { construirDestinatariosCobranca, COLECAO_BOLETOS, colecaoDoRegistro } from './cobrancas.js'
+import { useCobrancas } from './useCobrancas.js'
 
 function formVazio() {
   return {
     id: '',
+    destinoKey: '',
     moradorId: '',
     moradorUserId: '',
     moradorNome: '',
@@ -28,10 +29,8 @@ function formVazio() {
 }
 
 export default function EmissaoBoleto() {
-  const { userProfile, firebaseOK } = useAuth()
+  const { userProfile } = useAuth()
   const { moradores, usuarios } = useApp()
-  const [boletos, setBoletos] = useState([])
-  const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [mensagem, setMensagem] = useState('')
   const [tipoMsg, setTipoMsg] = useState('success')
@@ -43,54 +42,21 @@ export default function EmissaoBoleto() {
 
   const condominioId = userProfile?.condominioId || 'local'
   const podeEditar = PERFIS_GESTORES_PAGAMENTO.includes(userProfile?.role)
-
-  useEffect(() => {
-    if (!firebaseOK || !userProfile?.condominioId) {
-      setBoletos(load(chaveBoletos(condominioId)) || [])
-      setLoading(false)
-      return
-    }
-    const unsub = onSnapshot(collection(db, 'tenants', condominioId, 'boletos'), (snap) => {
-      const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      lista.sort((a, b) => new Date(b.dataVencimento || 0) - new Date(a.dataVencimento || 0))
-      setBoletos(lista)
-      save(chaveBoletos(condominioId), lista)
-      setLoading(false)
-    }, (erro) => {
-      console.error('Erro ao sincronizar boletos:', erro)
-      setBoletos(load(chaveBoletos(condominioId)) || [])
-      setLoading(false)
-    })
-    return () => unsub()
-  }, [firebaseOK, condominioId, userProfile?.condominioId])
-
-  // Opções de cobrança: cadastro de moradores do condomínio (AppContext) +
-  // contas de usuário com login (Firestore). O "value" leva prefixo para não
-  // confundir os dois identificadores.
-  const emailsMoradores = new Set(
-    (moradores || []).map((m) => String(m.email || '').trim().toLowerCase()).filter(Boolean)
+  const { cobrancas, atualizarLocal, carregando: loading, firestoreAtivo } = useCobrancas()
+  const boletos = useMemo(
+    () => [...cobrancas].sort((a, b) => new Date(b.dataVencimento || 0) - new Date(a.dataVencimento || 0)),
+    [cobrancas]
   )
-  const opcoesMoradores = [
-    ...(moradores || []).map((m) => ({
-      value: `morador:${m.id}`,
-      nome: m.nome || 'Sem nome',
-      unidade: m.unidade || '',
-      email: m.email || '',
-      moradorId: m.id,
-      moradorUserId: ''
+
+  // O mesmo helper da cobrança mensal vinculha cadastro e conta por e-mail ou
+  // unidade, evitando duas cobranças para a mesma unidade.
+  const opcoesMoradores = useMemo(
+    () => construirDestinatariosCobranca(moradores, usuarios).map((o) => ({
+      ...o,
+      value: o.moradorId ? `morador:${o.moradorId}` : `usuario:${o.moradorUserId}`
     })),
-    ...(usuarios || [])
-      .filter((u) => ['morador', 'conselheiro'].includes(u.role))
-      .filter((u) => !emailsMoradores.has(String(u.email || '').trim().toLowerCase()))
-      .map((u) => ({
-        value: `usuario:${u.id}`,
-        nome: u.nome || u.email || 'Usuário',
-        unidade: u.unidade || '',
-        email: u.email || '',
-        moradorId: '',
-        moradorUserId: u.id
-      }))
-  ]
+    [moradores, usuarios]
+  )
 
   const rotuloMorador = (o) =>
     `${o.nome}${o.unidade ? ' — ' + o.unidade : ''}${o.email ? ' (' + o.email + ')' : ''}`
@@ -99,6 +65,7 @@ export default function EmissaoBoleto() {
     const opcao = opcoesMoradores.find((o) => o.value === value)
     setForm((prev) => ({
       ...prev,
+      destinoKey: value,
       moradorId: opcao?.moradorId || '',
       moradorUserId: opcao?.moradorUserId || '',
       moradorNome: opcao?.nome || '',
@@ -115,6 +82,9 @@ export default function EmissaoBoleto() {
   const editarBoleto = (boleto) => {
     setForm({
       id: boleto.id,
+      destinoKey: boleto.moradorId
+        ? `morador:${boleto.moradorId}`
+        : boleto.moradorUserId ? `usuario:${boleto.moradorUserId}` : '',
       moradorId: boleto.moradorId || '',
       moradorUserId: boleto.moradorUserId || '',
       moradorNome: boleto.moradorNome || '',
@@ -171,59 +141,58 @@ export default function EmissaoBoleto() {
       emitidoPor: userProfile?.nome || userProfile?.email || 'sistema'
     }
     setSalvando(true)
-    try {
-      if (firebaseOK && userProfile?.condominioId) {
+    const boletoAtual = cobrancas.find((b) => b.id === form.id)
+    if (firestoreAtivo) {
+      try {
         if (form.id) {
-          await updateDoc(doc(db, 'tenants', condominioId, 'boletos', form.id), { ...dados, atualizadoEm: nowISO() })
+          await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(boletoAtual || { id: form.id }), form.id), { ...dados, atualizadoEm: nowISO() })
         } else {
-          await addDoc(collection(db, 'tenants', condominioId, 'boletos'), {
+          await addDoc(collection(db, 'tenants', condominioId, COLECAO_BOLETOS), {
             ...dados, criadoEm: nowISO(), atualizadoEm: nowISO(), condominioId, removido: false
           })
         }
         setMensagem(form.id ? 'Boleto atualizado!' : 'Boleto emitido!')
-      } else {
-        throw new Error('sem-firestore')
+        setTipoMsg('success')
+      } catch (erro) {
+        console.error('Erro ao salvar boleto:', erro)
+        setMensagem('Não foi possível salvar a cobrança. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
+      } finally {
+        setSalvando(false)
+        limparForm()
       }
-      setTipoMsg('success')
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao salvar boleto:', erro)
-      // Sem conexão com o Firestore: mantém a emissão neste dispositivo para
-      // que o síndico não perca o trabalho (a lista local é substituída assim
-      // que o Firestore volta a responder).
-      const locais = load(chaveBoletos(condominioId)) || []
-      const atualizados = form.id
-        ? locais.map((b) => (b.id === form.id ? { ...b, ...dados, atualizadoEm: nowISO() } : b))
-        : [...locais, { ...dados, id: uid(), criadoEm: nowISO(), atualizadoEm: nowISO(), removido: false }]
-      save(chaveBoletos(condominioId), atualizados)
-      setBoletos(atualizados)
-      setMensagem(form.id ? 'Boleto atualizado neste dispositivo.' : 'Boleto emitido neste dispositivo.')
-      setTipoMsg('info')
-    } finally {
-      setSalvando(false)
-      limparForm()
+      return
     }
+
+    atualizarLocal((atuais) => form.id
+      ? atuais.map((b) => (b.id === form.id ? { ...b, ...dados, atualizadoEm: nowISO() } : b))
+      : [...atuais, { ...dados, id: uid(), criadoEm: nowISO(), atualizadoEm: nowISO(), removido: false }])
+    setMensagem(form.id ? 'Boleto atualizado neste dispositivo.' : 'Boleto emitido neste dispositivo.')
+    setTipoMsg('info')
+    setSalvando(false)
+    limparForm()
   }
 
   const atualizarStatus = async (id, novoStatus) => {
     if (!podeEditar) return
+    const boleto = cobrancas.find((b) => b.id === id)
     const alteracao = { status: novoStatus, atualizadoEm: nowISO() }
-    if (novoStatus === 'pago') alteracao.pagoEm = nowISO()
-    try {
-      if (firebaseOK && userProfile?.condominioId) {
-        await updateDoc(doc(db, 'tenants', condominioId, 'boletos', id), alteracao)
+    alteracao.pagoEm = novoStatus === 'pago' ? nowISO() : ''
+    if (firestoreAtivo) {
+      try {
+        await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(boleto || { id }), id), alteracao)
         setMensagem('Status do boleto atualizado!')
         setTipoMsg('success')
-        return
+      } catch (erro) {
+        console.error('Erro ao atualizar boleto:', erro)
+        setMensagem('Não foi possível atualizar o status. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
       }
-      throw new Error('sem-firestore')
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao atualizar boleto:', erro)
-      const locais = (load(chaveBoletos(condominioId)) || []).map((b) => (b.id === id ? { ...b, ...alteracao } : b))
-      save(chaveBoletos(condominioId), locais)
-      setBoletos(locais)
-      setMensagem('Status atualizado neste dispositivo.')
-      setTipoMsg('info')
+      return
     }
+    atualizarLocal((atuais) => atuais.map((b) => (b.id === id ? { ...b, ...alteracao } : b)))
+    setMensagem('Status atualizado neste dispositivo.')
+    setTipoMsg('info')
   }
 
   // Exclusão lógica do boleto: marca "removido" em vez de apagar, para
@@ -234,24 +203,22 @@ export default function EmissaoBoleto() {
     const rotulo = `${boleto.moradorNome || 'Sem morador'} (${formatarValorBoleto(boleto.valor)})`
     if (!window.confirm(`Excluir o boleto de ${rotulo}? O registro sai das listagens.`)) return
     const alteracao = { removido: true, removidoEm: nowISO(), atualizadoEm: nowISO() }
-    try {
-      if (firebaseOK && userProfile?.condominioId) {
-        await updateDoc(doc(db, 'tenants', condominioId, 'boletos', boleto.id), alteracao)
+    if (firestoreAtivo) {
+      try {
+        await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(boleto), boleto.id), alteracao)
         setMensagem('Boleto excluído.')
         setTipoMsg('success')
-        if (form.id === boleto.id) limparForm()
-        return
+      } catch (erro) {
+        console.error('Erro ao excluir boleto:', erro)
+        setMensagem('Não foi possível excluir o boleto. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
       }
-      throw new Error('sem-firestore')
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao excluir boleto:', erro)
-      const locais = (load(chaveBoletos(condominioId)) || []).map((b) => (b.id === boleto.id ? { ...b, ...alteracao } : b))
-      save(chaveBoletos(condominioId), locais)
-      setBoletos(locais)
+    } else {
+      atualizarLocal((atuais) => atuais.map((b) => (b.id === boleto.id ? { ...b, ...alteracao } : b)))
       setMensagem('Boleto excluído neste dispositivo.')
       setTipoMsg('info')
-      if (form.id === boleto.id) limparForm()
     }
+    if (form.id === boleto.id) limparForm()
   }
 
   // ---- Filtros e totais exibidos na listagem ----
@@ -319,7 +286,7 @@ export default function EmissaoBoleto() {
             <div className='form-grid'>
               <div className='form-group'>
                 <label htmlFor='morador'>Morador *</label>
-                <select id='morador' value={form.moradorId} onChange={(e) => selecionarMorador(e.target.value)} className='select'>
+                <select id='morador' value={form.destinoKey} onChange={(e) => selecionarMorador(e.target.value)} className='select'>
                   <option value=''>Selecione...</option>
                   {opcoesMoradores.map((o) => <option key={o.value} value={o.value}>{rotuloMorador(o)}</option>)}
                 </select>

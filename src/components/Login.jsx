@@ -21,6 +21,8 @@ export default function Login() {
   const [membroSenha, setMembroSenha] = useState('')
   const [membroCodigo, setMembroCodigo] = useState('')
   const [membroUnidade, setMembroUnidade] = useState('')
+  const [membroQuartos, setMembroQuartos] = useState('1')
+  const [membroVagas, setMembroVagas] = useState('0')
   const [membroWhatsapp, setMembroWhatsapp] = useState('')
   const [adminWhatsapp, setAdminWhatsapp] = useState('')
   const [recuperarEmail, setRecuperarEmail] = useState('')
@@ -78,6 +80,8 @@ export default function Login() {
         role: 'morador',
         condominioCodigo: membroCodigo.trim().toUpperCase(),
         unidade: membroUnidade.trim(),
+        quartos: Math.max(0, Math.min(20, parseInt(membroQuartos, 10) || 0)),
+        vagas: Math.max(0, Math.min(20, parseInt(membroVagas, 10) || 0)),
         whatsapp: whatsappMembro
       })
     } catch (err) { tratarErro(err) }
@@ -233,6 +237,15 @@ export default function Login() {
             <div className="field">
               <label htmlFor="membro-unidade">Unidade</label>
               <input id="membro-unidade" value={membroUnidade} onChange={(e) => setMembroUnidade(e.target.value)} placeholder="Ex.: Bloco A, apto 101" required />
+            </div>
+            <div className="field">
+              <label htmlFor="membro-quartos">Quartos</label>
+              <input id="membro-quartos" type="number" min="0" max="20" value={membroQuartos} onChange={(e) => setMembroQuartos(e.target.value)} />
+              <p className="login-hint">Use 0 para studio/quitinete. Esse dado define o tipo usado no rateio por metragem.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="membro-vagas">Vagas de garagem</label>
+              <input id="membro-vagas" type="number" min="0" max="20" value={membroVagas} onChange={(e) => setMembroVagas(e.target.value)} />
             </div>
             <div className="field">
               <label htmlFor="membro-whatsapp">WhatsApp (para notificações)</label>

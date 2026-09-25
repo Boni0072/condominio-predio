@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/storage.js'
 import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import AssinaturaRetiradaModal from './AssinaturaRetiradaModal.jsx'
 import { AvisoEncomendaWhatsApp, AvisoVisitanteWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
+import { filtrarDoUsuario, veTodosOsRegistros } from '../../utils/permissoes.js'
 
 function VisitanteForm() {
   const { registrarVisitante, moradores } = useApp()
@@ -135,16 +136,25 @@ function VisitantesList() {
   const { visitantes, registrarSaida, removerVisitante } = useApp()
   const { userProfile } = useAuth()
   const podeEnviarWhatsApp = userProfile?.role === 'sindico'
+  // Privacidade: somente os gestores (síndico, zelador e portaria) veem todos os
+  // visitantes do condomínio. Os demais perfis — inclusive com acesso liberado a
+  // esta página — enxergam apenas os visitantes da própria unidade.
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const visiveis = filtrarDoUsuario(visitantes, userProfile)
 
-  if (visitantes.length === 0) {
-    return <div className="empty-state">Nenhum visitante registrado ainda hoje.</div>
+  if (visiveis.length === 0) {
+    return (
+      <div className="empty-state">
+        {visaoTotal ? 'Nenhum visitante registrado ainda hoje.' : 'Nenhum visitante registrado para a sua unidade.'}
+      </div>
+    )
   }
 
   return (
     <div>
-      {visitantes.map((v, i) => (
+      {visiveis.map((v, i) => (
         <div className="log-item" key={v.id}>
-          <div className="log-tag">#{String(visitantes.length - i).padStart(3, '0')}</div>
+          <div className="log-tag">#{String(visiveis.length - i).padStart(3, '0')}</div>
           <div className="log-main">
             <div className="log-name">{v.nome}</div>
             <div className="log-meta">
@@ -168,15 +178,19 @@ function VisitantesList() {
             ) : (
               <>
                 <span className="badge badge-green">No condomínio</span>
-                {podeEnviarWhatsApp && <AvisoVisitanteWhatsApp visitante={v} />}
-                <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
-                  Registrar saída
-                </button>
+                {visaoTotal && podeEnviarWhatsApp && <AvisoVisitanteWhatsApp visitante={v} />}
+                {visaoTotal && (
+                  <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
+                    Registrar saída
+                  </button>
+                )}
               </>
             )}
-            <button className="btn btn-ghost btn-small" onClick={() => removerVisitante(v.id)}>
-              Remover
-            </button>
+            {visaoTotal && (
+              <button className="btn btn-ghost btn-small" onClick={() => removerVisitante(v.id)}>
+                Remover
+              </button>
+            )}
           </div>
         </div>
       ))}
@@ -371,14 +385,22 @@ function EncomendasList() {
   const podeEnviarWhatsApp = userProfile?.role === 'sindico'
   const [retiradaModal, setRetiradaModal] = useState(null)
   const [busca, setBusca] = useState('')
+  // Privacidade: gestores (síndico, zelador e portaria) veem todas as
+  // encomendas; os demais veem apenas as da própria unidade.
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const disponiveis = filtrarDoUsuario(encomendas, userProfile)
 
-  if (encomendas.length === 0) {
-    return <div className="empty-state">Nenhuma encomenda registrada.</div>
+  if (disponiveis.length === 0) {
+    return (
+      <div className="empty-state">
+        {visaoTotal ? 'Nenhuma encomenda registrada.' : 'Nenhuma encomenda registrada para a sua unidade.'}
+      </div>
+    )
   }
 
   const termo = busca.trim().toLowerCase()
   const filtradas = termo
-    ? encomendas.filter((e) => {
+    ? disponiveis.filter((e) => {
         const morador = moradorDaUnidade(moradores, e.unidade)
         const nomeMorador = (morador?.nome || '').toLowerCase()
         return (
@@ -388,7 +410,7 @@ function EncomendasList() {
           (e.transportadora || '').toLowerCase().includes(termo)
         )
       })
-    : encomendas
+    : disponiveis
 
   return (
     <div>
@@ -453,15 +475,19 @@ function EncomendasList() {
               ) : (
                 <>
                   <span className="badge badge-brick">Aguardando retirada</span>
-                  {podeEnviarWhatsApp && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
-                  <button className="btn btn-ghost btn-small" onClick={() => setRetiradaModal(e)}>
-                    Marcar retirada
-                  </button>
+                  {visaoTotal && podeEnviarWhatsApp && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
+                  {visaoTotal && (
+                    <button className="btn btn-ghost btn-small" onClick={() => setRetiradaModal(e)}>
+                      Marcar retirada
+                    </button>
+                  )}
                 </>
               )}
-              <button className="btn btn-ghost btn-small" onClick={() => removerEncomenda(e.id)}>
-                Remover
-              </button>
+              {visaoTotal && (
+                <button className="btn btn-ghost btn-small" onClick={() => removerEncomenda(e.id)}>
+                  Remover
+                </button>
+              )}
             </div>
           </div>
         )
@@ -488,8 +514,14 @@ function EncomendasList() {
 
 export default function Portaria() {
   const { visitantes, encomendas } = useApp()
-  const noCondominio = visitantes.filter((v) => !v.saida).length
-  const aguardando = encomendas.filter((e) => !e.retiradaEm).length
+  const { userProfile } = useAuth()
+  // O resumo do cabeçalho segue a mesma regra das listas: gestores veem o
+  // condomínio inteiro, os demais veem apenas os próprios registros.
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const visitantesVisiveis = filtrarDoUsuario(visitantes, userProfile)
+  const encomendasVisiveis = filtrarDoUsuario(encomendas, userProfile)
+  const noCondominio = visitantesVisiveis.filter((v) => !v.saida).length
+  const aguardando = encomendasVisiveis.filter((e) => !e.retiradaEm).length
 
   return (
     <div>
@@ -497,7 +529,7 @@ export default function Portaria() {
         <div>
           <h1>Portaria</h1>
           <p className="sub">
-            {noCondominio} visitante{noCondominio !== 1 ? 's' : ''} no condomínio · {aguardando}{' '}
+            {noCondominio} visitante{noCondominio !== 1 ? 's' : ''} {visaoTotal ? 'no condomínio' : 'na sua unidade'} · {aguardando}{' '}
             encomenda{aguardando !== 1 ? 's' : ''} aguardando retirada
           </p>
         </div>

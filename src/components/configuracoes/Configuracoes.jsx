@@ -4,6 +4,15 @@ import { arquivoParaDataUrl } from '../../utils/imagem.js'
 import { REGRAS_FIRESTORE } from '../../firebase/regras.js'
 import { TEMAS, temaSalvo, aplicarTema, coresPersonalizadas, aplicarCoresPersonalizadas } from '../../utils/tema.js'
 import { salvarTokenUsuario, pushConfigurado, ultimoErroToken, ultimoDocSalvo, diagnosticarPush } from '../../utils/push.js'
+// Seção "Contas bancárias": reaproveita a tela "Pagamentos → Configurar contas".
+// Grava nos MESMOS documentos do Firestore (tenants/{id}/contas_bancarias e
+// tenants/{id}/config_pix), então as duas telas ficam sempre em sincronia.
+import ConfigurarContas from '../pagamentos/ConfigurarContas.jsx'
+// Seção "Cotas mensais": gera e calcula as cobranças de condomínio de cada
+// morador a partir das despesas do mês (rateio igual, com prévia e isenções).
+import GerarCotas from './GerarCotas.jsx'
+// Card "Minhas cobranças": o morador/conselheiro acompanha as cobranças dele.
+import MinhasCobrancas from './MinhasCobrancas.jsx'
 
 export default function Configuracoes() {
   const { userProfile, condominio, atualizarCondominio } = useAuth()
@@ -21,11 +30,18 @@ export default function Configuracoes() {
   )
   const [ativandoNotif, setAtivandoNotif] = useState(false)
   const [diagnostico, setDiagnostico] = useState([])
+  // Seção "Notificações push" inicia recolhida para não ocupar a tela;
+  // o cabeçalho segue visível com o botão Expandir/Recolher.
+  const [pushAberto, setPushAberto] = useState(false)
+  // Seção "Tema de cores do sistema" inicia recolhida para não ocupar a tela;
+  // o cabeçalho segue visível com o botão Expandir/Recolher.
+  const [temaAberto, setTemaAberto] = useState(false)
   const inputRef = useRef(null)
 
-  // Morador consulta os dados do condomínio, mas não pode editá-los —
-  // as regras do Firestore só permitem gravação ao síndico/zelador/portaria.
-  const somenteLeitura = userProfile?.role === 'morador'
+  // Apenas o síndico altera os dados gerais do condomínio. Zelador e
+  // portaria continuam consultados a seção e editam somente os dados de
+  // cobrança/PIX, evitando uma gravação que o Firestore rejeitaria.
+  const somenteLeitura = userProfile?.role !== 'sindico'
 
   const adicionarDiag = (msg) => setDiagnostico((prev) => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`])
 
@@ -339,8 +355,39 @@ export default function Configuracoes() {
         </div>
       </div>
 
+      {/* Seção: contas bancárias e chave PIX de recebimento. Síndico, zelador e
+          portaria editam; morador e conselheiro apenas consultam. */}
+      {userProfile?.condominioId ? (
+        <ConfigurarContas />
+      ) : (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ marginBottom: 4 }}>Contas bancárias</h3>
+          <p className="hint" style={{ color: 'var(--ink-soft)', fontSize: 15.6 }}>
+            Disponível para contas vinculadas a um condomínio.
+          </p>
+        </div>
+      )}
+
+      {/* Seção: geração das cobranças mensais (síndico, zelador e portaria —
+          o componente esconde-se sozinho para os demais perfis). Abaixo, o
+          morador/conselheiro acompanha as cobranças dele ("Minhas cobranças"). */}
+      <GerarCotas />
+      <MinhasCobrancas />
+
       <div className="card" style={{ marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 4 }}>Notificações push</h3>
+        <div className="card-header">
+          <h3>Notificações push</h3>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            onClick={() => setPushAberto((aberto) => !aberto)}
+            aria-expanded={pushAberto}
+          >
+            {pushAberto ? '▾ Recolher' : '▸ Expandir'}
+          </button>
+        </div>
+        {pushAberto && (
+        <div className="card-body" style={{ paddingTop: 0 }}>
         <p className="hint" style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 15.6 }}>
           Receba avisos de encomendas e visitantes mesmo com o app fechado. Ative em cada dispositivo que deve receber os avisos.
         </p>
@@ -383,10 +430,24 @@ export default function Configuracoes() {
             ))}
           </div>
         )}
+        </div>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 4 }}>Tema de cores do sistema</h3>
+        <div className="card-header">
+          <h3>Tema de cores do sistema</h3>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            onClick={() => setTemaAberto((aberto) => !aberto)}
+            aria-expanded={temaAberto}
+          >
+            {temaAberto ? '▾ Recolher' : '▸ Expandir'}
+          </button>
+        </div>
+        {temaAberto && (
+        <div className="card-body" style={{ paddingTop: 0 }}>
         <p className="hint" style={{ marginBottom: 16, color: 'var(--ink-soft)', fontSize: 15.6 }}>
           Escolha a escala de cores da interface. A opção é aplicada na hora e fica salva neste dispositivo — cada máquina pode usar um tema diferente.
         </p>
@@ -457,6 +518,8 @@ export default function Configuracoes() {
               Botões, menu ativo, badges e destaques usam a cor principal. As alterações são aplicadas na hora e salvas neste dispositivo.
             </p>
           </div>
+        )}
+        </div>
         )}
       </div>
     </div>

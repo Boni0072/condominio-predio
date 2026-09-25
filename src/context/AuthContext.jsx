@@ -208,6 +208,8 @@ export function AuthProvider({ children }) {
         nome: dados.nome,
         whatsapp: dados.whatsapp || '',
         unidade: dados.unidade || '',
+        quartos: Number.isFinite(Number(dados.quartos)) ? Math.max(0, Math.trunc(Number(dados.quartos))) : 1,
+        vagas: Number.isFinite(Number(dados.vagas)) ? Math.max(0, Math.trunc(Number(dados.vagas))) : 0,
         role,
         condominioId,
         status: 'ativo',
@@ -219,6 +221,8 @@ export function AuthProvider({ children }) {
         nome: dados.nome,
         whatsapp: dados.whatsapp || '',
         unidade: dados.unidade || '',
+        quartos: Number.isFinite(Number(dados.quartos)) ? Math.max(0, Math.trunc(Number(dados.quartos))) : 1,
+        vagas: Number.isFinite(Number(dados.vagas)) ? Math.max(0, Math.trunc(Number(dados.vagas))) : 0,
         role,
         condominioId
       })
@@ -253,12 +257,25 @@ export function AuthProvider({ children }) {
       nome,
       whatsapp: dados?.whatsapp || '',
       unidade: dados?.unidade || '',
+      quartos: Number.isFinite(Number(dados?.quartos)) ? Math.max(0, Math.trunc(Number(dados.quartos))) : 1,
+      vagas: Number.isFinite(Number(dados?.vagas)) ? Math.max(0, Math.trunc(Number(dados.vagas))) : 0,
       role: 'morador',
       condominioId,
       status: 'ativo',
       criadoEm: serverTimestamp()
     })
-    setUserProfile({ uid: user.uid, email, nome, whatsapp: dados?.whatsapp || '', unidade: dados?.unidade || '', role: 'morador', condominioId, status: 'ativo' })
+    setUserProfile({
+      uid: user.uid,
+      email,
+      nome,
+      whatsapp: dados?.whatsapp || '',
+      unidade: dados?.unidade || '',
+      quartos: Number.isFinite(Number(dados?.quartos)) ? Math.max(0, Math.trunc(Number(dados.quartos))) : 1,
+      vagas: Number.isFinite(Number(dados?.vagas)) ? Math.max(0, Math.trunc(Number(dados.vagas))) : 0,
+      role: 'morador',
+      condominioId,
+      status: 'ativo'
+    })
     const condoDoc = await getDoc(doc(db, 'tenants', condominioId))
     if (condoDoc.exists()) {
       setCondominio({ id: condoDoc.id, ...condoDoc.data() })
@@ -286,6 +303,8 @@ export function AuthProvider({ children }) {
         whatsapp: dados.whatsapp || '',
         role: dados.role || 'morador',
         unidade: dados.unidade?.trim() || '',
+        quartos: Number.isFinite(Number(dados.quartos)) ? Math.max(0, Math.trunc(Number(dados.quartos))) : 1,
+        vagas: Number.isFinite(Number(dados.vagas)) ? Math.max(0, Math.trunc(Number(dados.vagas))) : 0,
         // Nunca salvar lista vazia: se veio vazia/ausente, grava os padrões
         // atuais do perfil — senão o usuário nasceria sem menu nenhum.
         acessos:
@@ -407,7 +426,7 @@ export function AuthProvider({ children }) {
 
   async function excluirCondominio(id) {
     if (!ehMaster(auth.currentUser?.email)) throw new Error('Apenas o usuário master pode excluir condomínios.')
-    const colecoes = ['visitantes', 'encomendas', 'comunicados', 'moradores', 'despesas', 'orcamentos']
+    const colecoes = ['visitantes', 'encomendas', 'comunicados', 'moradores', 'despesas', 'orcamentos', 'boletos', 'cobrancas']
     const batch = writeBatch(db)
     for (const nome of colecoes) {
       const snapshot = await getDocs(collection(db, 'tenants', id, nome))

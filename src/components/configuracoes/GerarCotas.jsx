@@ -1,22 +1,35 @@
-import React, { useEffect, useMemo, useState } from 'react'
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../context/AppContext.jsx'
 import { db } from '../../firebase/config.js'
-import { collection, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore'
+import { addDoc, collection, updateDoc, doc } from 'firebase/firestore'
 import { PERFIS_GESTORES_PAGAMENTO } from '../pagamentos/tipos.js'
-import { formatarValorBoleto } from '../pagamentos/boletoUtils.js'
+import { formatarValorBoleto, gerarNossoNumero } from '../pagamentos/boletoUtils.js'
 import {
-  chaveCobrancas,
   chaveMensalidadeFixa,
+  chaveMetragensTipos,
   chaveTiposExtras,
   statusEfetivoCobranca,
   ROTULO_STATUS_COBRANCA,
   CLASSE_BADGE_COBRANCA
 } from './cobrancaUtils.js'
+import {
+  somaAprovacoesMes,
+  aprovacoesDoMes,
+  mesAprovadoPorAssinaturas
+} from '../orcamento/orcamentoUtils.js'
+import {
+  COLECAO_BOLETOS,
+  colecaoDoRegistro,
+  normalizarUnidade,
+  construirDestinatariosCobranca
+} from '../pagamentos/cobrancas.js'
+import { useCobrancas } from '../pagamentos/useCobrancas.js'
 import { getMonthKey, uid, nowISO, load, save } from '../../utils/storage.js'
 
-// Sistema de COBRANÇA dos moradores: grava em uma coleção própria
-// (tenants/{id}/cobrancas), independente dos boletos do módulo Pagamentos.
+// Sistema de COBRANÇA dos moradores: as cotas mensais usam a mesma coleção
+// de Pagamentos (tenants/{id}/boletos), garantindo que pagamento, consulta e
+// baixa sejam atualizados em tempo real em todas as telas.
 
 
 const NOMES_MESES = [
@@ -42,24 +55,25 @@ function vencimentoPadrao(mesRef) {
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`
 }
 
-// Rateio PROPORTIONAL ao peso de cada unidade — peso = nº de quartos + vagas
-// de garagem (mínimo 1, para unidades sem quarto e sem vaga continuarem
-// participando). Cada morador recebe (peso / totalDePesos) do valor total.
+// Rateio PROPORCIONAL à metragem (m²) de cada unidade — quem ocupa mais
+// espaço paga mais. A metragem é definida por TIPO de apartamento na tabela
+// de rateio (ex.: "2 quartos = 65 m²"); cada unidade herda a metragem do seu
+// tipo. Cada morador recebe (metragem / metragemTotal) do valor total.
 // A diferença inteira em centavos é distribuída uma a uma, das maiores para
 // as menores frações (método do maior resto), garantindo que a soma feche o
 // total exato.
-function ratearPorQuartos(totalCents, itens) {
-  const pesados = itens.map((item, indice) => ({
+function ratearPorMetragem(totalCents, itens) {
+  const itensOk = itens.map((item, indice) => ({
     indice,
-    quartos: Math.max(1, Number(item.peso) || 1)
+    metros: Math.max(0, Number(item.metragem) || 0)
   }))
-  const somaQuartos = pesados.reduce((soma, p) => soma + p.quartos, 0)
-  if (somaQuartos <= 0) return itens.map(() => 0)
-  const exatos = pesados.map((p) => (totalCents * p.quartos) / somaQuartos)
+  const somaMetros = itensOk.reduce((soma, p) => soma + p.metros, 0)
+  if (somaMetros <= 0) return itens.map(() => 0)
+  const exatos = itensOk.map((p) => (totalCents * p.metros) / somaMetros)
   const bases = exatos.map((exato) => Math.floor(exato))
   let resto = totalCents - bases.reduce((soma, base) => soma + base, 0)
   // Distribui o resto para as maiores frações decimais (maior resto).
-  const ordem = pesados
+  const ordem = itensOk
     .map((p, i) => ({ indice: p.indice, fracao: exatos[i] - bases[i] }))
     .sort((a, b) => b.fracao - a.fracao)
   const extras = {}
@@ -78,8 +92,8 @@ function numeroDe(valor) {
   return Number.isFinite(numero) ? numero : 0
 }
 
-// Valor em reais com mais casas decimais (até 4) — usado para exibir quanto vale
-// 1 peso do rateio sem esconder a dízima (ex.: R$ 25.833,3333).
+// Valor em reais com mais casas decimais (até 4) — usado para exibir quanto
+// vale 1 m² do rateio sem esconder a dízima (ex.: R$ 25,8333/m²).
 function formatarValorPreciso(valor, casas = 4) {
   const numero = Number(valor)
   return (Number.isFinite(numero) ? numero : 0).toLocaleString('pt-BR', {
@@ -92,9 +106,10 @@ function formatarValorPreciso(valor, casas = 4) {
 
 // Tipo de apartamento de uma unidade: agrupa por número de quartos e, quando
 // houver, por vagas de garagem (ex.: "3 quartos + 1 vaga"). Studio/quitinete
-// sem quarto aparece como "Studio (sem quarto)". O peso padrão do tipo
-// (usado quando a tabela de rateio não define um coeficiente próprio) é
-// quartos + vagas, com mínimo 1, para a unidade sempre participar do rateio.
+// sem quarto aparece como "Studio (sem quarto)". A METRAGEM PADRÃO é uma
+// estimativa a partir do tipo (30 m² de área comum + 25 m² por quarto +
+// 12,5 m² por vaga) — serve como ponto de partida, mas o valor que vale é o
+// definido na tabela de rateio (coluna "Metragem (m²) por unidade").
 function tipoApto(quartos, vagas) {
   const q = Number(quartos)
   const v = Number(vagas)
@@ -109,7 +124,7 @@ function tipoApto(quartos, vagas) {
     rotulo: `${nomeQuartos}${nomeVagas}`,
     quartos: quartosOk,
     vagas: vagasOk,
-    pesoPadrao: Math.max(1, quartosOk + vagasOk)
+    metragemPadrao: 30 + quartosOk * 25 + vagasOk * 12.5
   }
 }
 
@@ -127,6 +142,13 @@ const OPCOES_VAGAS_TIPO = Array.from({ length: MAX_QUARTOS_VAGAS + 1 }, (_, n) =
   rotulo: n === 0 ? 'Sem vaga' : `${n} vaga${n > 1 ? 's' : ''}`
 }))
 
+// Metragem (m²) com até 2 casas, sem zeros à toa (ex.: "65 m²", "42,5 m²").
+function formatarMetros(valor) {
+  const numero = Number(valor)
+  const ok = Number.isFinite(numero) ? numero : 0
+  return `${ok.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m²`
+}
+
 // Percentual do rateio com 2 casas (ex.: "16,67%").
 function formatarPercentual(valor) {
   const numero = Number(valor)
@@ -136,21 +158,28 @@ function formatarPercentual(valor) {
   })}%`
 }
 
-// Coeficiente (peso) do rateio é SEMPRE automático — quartos + vagas de
-// garagem da unidade, com mínimo 1. Não há valor digitado à mão: quem ocupa
-// mais espaço (mais quartos e mais vagas) paga uma parcela maior.
+// O rateio é 100% pela METRAGEM (m²): cada tipo tem sua metragem definida na
+// tabela (editável na coluna "Metragem (m²) por unidade"). Quem ocupa mais
+// espaço paga mais — sem peso digitado à mão fora da metragem.
 
 export default function GerarCotas() {
-  const { userProfile, firebaseOK } = useAuth()
-  const { moradores, usuarios, despesas } = useApp()
+  const { userProfile } = useAuth()
+  const { moradores, usuarios, despesas, orcamentos = [], aprovacoes = [] } = useApp()
 
   const [mesRef, setMesRef] = useState(mesAtual)
   const [incluirDespesas, setIncluirDespesas] = useState(true)
+  // Orçamento APROVADO do mês entra no rateio somado às despesas, outras
+  // despesas e fundo de reserva (pedido do condomínio).
+  const [incluirOrcamento, setIncluirOrcamento] = useState(true)
   const [outrasDespesas, setOutrasDespesas] = useState('')
   const [fundoReserva, setFundoReserva] = useState('')
   const [dataVencimento, setDataVencimento] = useState(() => vencimentoPadrao(mesAtual()))
   const [descricao, setDescricao] = useState(() => `Cota condominial ${rotuloMes(mesAtual())}`)
   const [isentos, setIsentos] = useState({})
+  // Seção "Cobrança mensal dos moradores" inicia recolhida para não ocupar
+  // a tela; o cabeçalho segue visível com o botão Expandir/Recolher.
+  const [secaoAberta, setSecaoAberta] = useState(false)
+  const [previaAberta, setPreviaAberta] = useState(false)
   // Mensalidade fixa do condomínio: quando ativada, o total a ratear deixa de
   // ser calculado pelas despesas do mês e passa a ser o valor definido aqui.
   // Também fica salva no navegador por condomínio (é uma configuração que se
@@ -170,37 +199,20 @@ export default function GerarCotas() {
   )
   const [novoTipoQuartos, setNovoTipoQuartos] = useState(1)
   const [novoTipoVagas, setNovoTipoVagas] = useState(0)
-  // Estado inicial já com o fallback local (evita render vazio antes do efeito
-  // e permite testar a listagem/edição sem depender do Firestore).
-  const [cobrancas, setCobrancas] = useState(
-    () => load(chaveCobrancas(userProfile?.condominioId)) || []
-  )
+  // A mesma fonte de dados é usada por Configurações e Pagamentos.
   const [gerando, setGerando] = useState(false)
   const [mensagem, setMensagem] = useState('')
   const [tipoMsg, setTipoMsg] = useState('success')
 
   const condominioId = userProfile?.condominioId
-  const firestoreAtivo = Boolean(firebaseOK && condominioId)
-  // Geração de cotas é tarefa da administração: síndico, zelador e portaria.
-  // Outros perfis (morador/conselheiro) simplesmente não veem a seção.
   const podeGerar = PERFIS_GESTORES_PAGAMENTO.includes(userProfile?.role) && Boolean(condominioId)
-
-  // Cobranças existentes (com fallback local quando o Firestore não está ativo).
-  useEffect(() => {
-    if (!firestoreAtivo) {
-      setCobrancas(load(chaveCobrancas(condominioId)) || [])
-      return
-    }
-    const unsub = onSnapshot(collection(db, 'tenants', condominioId, 'cobrancas'), (snap) => {
-      const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      setCobrancas(lista)
-      save(chaveCobrancas(condominioId), lista)
-    }, (erro) => {
-      console.error('Erro ao sincronizar cobranças:', erro)
-      setCobrancas(load(chaveCobrancas(condominioId)) || [])
-    })
-    return () => unsub()
-  }, [firestoreAtivo, condominioId])
+  const {
+    cobrancas,
+    atualizarLocal,
+    carregando: carregandoCobrancas,
+    erroSincronizacao,
+    firestoreAtivo
+  } = useCobrancas({ ativo: podeGerar })
 
   // Persiste a mensalidade fixa (ativação + valor) por condomínio.
   useEffect(() => {
@@ -221,35 +233,12 @@ export default function GerarCotas() {
   }, [mesRef])
 
 
-  // Destinatários: cadastro de moradores + contas de usuário com login
-  // (sem duplicar quem já está no cadastro) — mesmo critério da emissão
-  // individual de boletos.
-  const destinatarios = useMemo(() => {
-    const emailsMoradores = new Set(
-      (moradores || []).map((m) => String(m.email || '').trim().toLowerCase()).filter(Boolean)
-    )
-    return [
-      ...(moradores || []).map((m) => ({
-        key: `mor:${m.id}`,
-        moradorId: m.id,
-        moradorUserId: '',
-        nome: m.nome || 'Sem nome',
-        unidade: m.unidade || '',
-        email: m.email || ''
-      })),
-      ...(usuarios || [])
-        .filter((u) => ['morador', 'conselheiro'].includes(u.role))
-        .filter((u) => !emailsMoradores.has(String(u.email || '').trim().toLowerCase()))
-        .map((u) => ({
-          key: `usr:${u.id}`,
-          moradorId: '',
-          moradorUserId: u.id,
-          nome: u.nome || u.email || 'Usuário',
-          unidade: u.unidade || '',
-          email: u.email || ''
-        }))
-    ]
-  }, [moradores, usuarios])
+  // Destinatários: cadastro de moradores + contas de usuário com login. O
+  // vínculo é por e-mail ou unidade e ambos os IDs são guardados na cobrança.
+  const destinatarios = useMemo(
+    () => construirDestinatariosCobranca(moradores, usuarios),
+    [moradores, usuarios]
+  )
 
   // Despesas lançadas no mês de referência. Usa 'data' com fallback para
   // 'criadoEm', igual à página Despesas — sem esse fallback, um lançamento sem
@@ -259,6 +248,23 @@ export default function GerarCotas() {
     [despesas, mesRef]
   )
   const somaDespesasMes = despesasDoMes.reduce((soma, d) => soma + (Number(d.valor) || 0), 0)
+
+  // Orçamento APROVADO do mês de referência: só entra no rateio com ≥3
+  // assinaturas de usuários distintos (mês validado). O valor é a soma dos
+  // sub-itens com ≥2 aprovações e menos de 2 rejeições (regra de "Orçado").
+  const [anoOrc, mesOrc] = String(mesRef || '').split('-').map(Number)
+  const orcamentosDoMes = useMemo(
+    () => (orcamentos || []).filter((o) => Number(o.ano) === Number(anoOrc) && Number(o.mes) === Number(mesOrc)),
+    [orcamentos, anoOrc, mesOrc]
+  )
+  const aprovacoesDoMesRef = useMemo(
+    () => aprovacoesDoMes(aprovacoes || [], anoOrc, mesOrc),
+    [aprovacoes, anoOrc, mesOrc]
+  )
+  const orcamentoMesAprovado = mesAprovadoPorAssinaturas(aprovacoesDoMesRef)
+  const somaOrcamentoAprovadoMes = orcamentoMesAprovado
+    ? somaAprovacoesMes(orcamentosDoMes, aprovacoesDoMesRef)
+    : 0
 
   // Meses (diferentes do escolhido) que têm despesas lançadas — usados para
   // explicar na tela por que o total a ratear está zerado.
@@ -276,7 +282,9 @@ export default function GerarCotas() {
   }, [despesas, mesRef])
 
   const totalDespesasMes =
-    (incluirDespesas ? somaDespesasMes : 0) + numeroDe(outrasDespesas) + numeroDe(fundoReserva)
+    (incluirDespesas ? somaDespesasMes : 0) +
+    (incluirOrcamento ? somaOrcamentoAprovadoMes : 0) +
+    numeroDe(outrasDespesas) + numeroDe(fundoReserva)
 
   // Mensalidade fixa ativada e válida substitui o total calculado pelas despesas.
   const valorMensalidadeFixa = numeroDe(mensalidadeFixa)
@@ -285,18 +293,57 @@ export default function GerarCotas() {
 
   const ativos = destinatarios.filter((d) => !isentos[d.key])
 
-  // Números da fórmula exibida na tela: soma dos pesos das unidades que entram
-  // no rateio e quanto vale 1 peso.
-  const somaPesos = ativos.reduce((soma, d) => soma + pesoDoDestinatario(d), 0)
-  const valorPorPeso = somaPesos > 0 ? totalCotas / somaPesos : 0
+  // Metragens definidas por tipo de apartamento na tabela de rateio — o que
+  // vale no cálculo. Quando um tipo ainda não tem metragem própria, usa a
+  // metragem padrão estimada dele (30 + 25/quarto + 12,5/vaga).
+  // Persistidas no navegador por condomínio; "Restaurar metragens padrão"
+  // limpa as definidas e volta para a estimativa.
+  const [metragensTipos, setMetragensTipos] = useState(
+    () => load(chaveMetragensTipos(userProfile?.condominioId), {}) || {}
+  )
 
-  // Cota já gerada para este mês quando existe boleto com o mesmo cotaRef
-  // e o mesmo destinatário (id do cadastro, uid da conta ou e-mail).
+  // Persiste as metragens definidas na tabela de rateio.
+  useEffect(() => {
+    if (condominioId) save(chaveMetragensTipos(condominioId), metragensTipos)
+  }, [metragensTipos, condominioId])
+
+  // Metragem efetiva de um tipo: definida na tabela ou a estimativa padrão.
+  const metragemDoTipo = useCallback((tipo) => {
+    const definida = Number(
+      String(metragensTipos[tipo.chave] ?? '').replace(/\./g, '').replace(',', '.')
+    )
+    if (Number.isFinite(definida) && definida > 0) return definida
+    return tipo.metragemPadrao
+  }, [metragensTipos])
+
+  // Quartos, vagas e tipo de apartamento da unidade de um destinatário — lidos
+  // do cadastro de moradores ou da conta de usuário. Usa "??" para respeitar
+  // 0 quartos (studio/quitinete). A metragem que vale no rateio é a definida
+  // na tabela para o tipo da unidade (ou a estimativa padrão dele).
+  const dadosDoDestinatario = useCallback((d) => {
+    const m = (moradores || []).find((x) => x.id === d.moradorId)
+    const u = (usuarios || []).find((x) => String(x.id) === String(d.moradorUserId) || String(x.uid) === String(d.moradorUserId))
+    const quartos = Number(m?.quartos ?? u?.quartos ?? d.quartos ?? 1)
+    const vagas = Number(m?.vagas ?? u?.vagas ?? d.vagas ?? 0)
+    const tipo = tipoApto(quartos, vagas)
+    return { quartos, vagas, tipo, metragem: metragemDoTipo(tipo) }
+  }, [moradores, usuarios, metragemDoTipo])
+
+  // Números da fórmula exibida na tela: soma das metragens das unidades que
+  // entram no rateio e quanto vale 1 m².
+  const somaMetros = ativos.reduce(
+    (soma, d) => soma + dadosDoDestinatario(d).metragem, 0
+  )
+  const valorPorMetro = somaMetros > 0 ? totalCotas / somaMetros : 0
+
+  // Cota já gerada para este mês quando existe cobrança com o mesmo cotaRef
+  // e o mesmo destinatário (id do cadastro, uid da conta, e-mail ou unidade).
   const jaGerado = (item) => cobrancas.some((c) => !c.removido
     && c.cotaRef === mesRef
     && ((item.moradorId && c.moradorId === item.moradorId)
       || (item.moradorUserId && c.moradorUserId === item.moradorUserId)
-      || (item.email && String(c.moradorEmail || '').trim().toLowerCase() === item.email.trim().toLowerCase())))
+      || (item.email && String(c.moradorEmail || '').trim().toLowerCase() === item.email.trim().toLowerCase())
+      || (item.unidade && normalizarUnidade(c.moradorUnidade) === normalizarUnidade(item.unidade))))
 
   // Cobranças já geradas para o mês de referência (listagem com baixa).
   const cobrancasDoMes = useMemo(() => cobrancas
@@ -304,71 +351,54 @@ export default function GerarCotas() {
     .sort((a, b) => String(a.moradorNome || '').localeCompare(String(b.moradorNome || ''))),
   [cobrancas, mesRef])
 
-  // Quartos, vagas e tipo de apartamento da unidade de um destinatário — lidos
-  // do cadastro de moradores ou da conta de usuário. Usa "??" para respeitar
-  // 0 quartos (studio/quitinete). O peso é AUTOMÁTICO: quartos + vagas, com
-  // mínimo 1 — quem ocupa mais espaço (mais quartos e mais vagas) paga mais.
-  function dadosDoDestinatario(d) {
-    const m = (moradores || []).find((x) => x.id === d.moradorId)
-    const u = (usuarios || []).find((x) => x.id === d.moradorUserId)
-    const quartos = Number(m?.quartos ?? u?.quartos ?? 1)
-    const vagas = Number(m?.vagas ?? u?.vagas ?? 0)
-    const tipo = tipoApto(quartos, vagas)
-    return { quartos, vagas, tipo, peso: tipo.pesoPadrao }
-  }
-
-  function pesoDoDestinatario(d) {
-    return dadosDoDestinatario(d).peso
-  }
-
-  // Prévia com valores por destinatário: rateio PROPORTIONAL ao peso
-  // (quartos + vagas) de cada unidade (centavos pelo método do maior resto).
+  // Prévia com valores por destinatário: rateio PROPORCIONAL À METRAGEM (m²)
+  // de cada unidade (centavos pelo método do maior resto).
   const previa = useMemo(() => {
-    const ativosComPeso = destinatarios
+    const ativosComMetragem = destinatarios
       .filter((d) => !isentos[d.key])
       .map((d) => ({ ...d, ...dadosDoDestinatario(d) }))
-    const valores = ratearPorQuartos(Math.round(totalCotas * 100), ativosComPeso)
+    const valores = ratearPorMetragem(Math.round(totalCotas * 100), ativosComMetragem)
     const valorPorKey = {}
-    ativosComPeso.forEach((item, indice) => { valorPorKey[item.key] = valores[indice] })
+    ativosComMetragem.forEach((item, indice) => { valorPorKey[item.key] = valores[indice] })
     return destinatarios.map((d) => {
       const isento = Boolean(isentos[d.key])
-      const { quartos, vagas, tipo, peso } = dadosDoDestinatario(d)
+      const { quartos, vagas, tipo, metragem } = dadosDoDestinatario(d)
       return {
         ...d,
         tipo,
         quartos: isento ? 0 : quartos,
         vagas: isento ? 0 : vagas,
-        peso: isento ? 0 : peso,
+        metragem: isento ? 0 : metragem,
         isento,
         valor: isento ? 0 : valorPorKey[d.key] ?? 0,
         jaGerado: jaGerado(d)
       }
     })
-  }, [destinatarios, isentos, totalCotas, cobrancas, mesRef, moradores, usuarios])
+  }, [destinatarios, isentos, totalCotas, cobrancas, mesRef, dadosDoDestinatario])
 
   // Tabela de rateio por TIPO DE APARTAMENTO: quantas unidades de cada tipo
-  // participam, o peso automatico (quartos + vagas), o percentual do rateio e o
-  // valor por unidade. Parte dos valores ja calculados na previa, entao a soma
-  // das linhas fecha exatamente o total a ratear.
+  // participam, a metragem (m²) definida na tabela, o percentual do rateio e
+  // o valor por unidade. Parte dos valores já calculados na prévia, então a
+  // soma das linhas fecha exatamente o total a ratear.
   const tiposRateio = useMemo(() => {
     const mapa = {}
     for (const p of previa) {
       if (p.isento) continue
       const chave = p.tipo.chave
       if (!mapa[chave]) {
-        mapa[chave] = { ...p.tipo, unidades: 0, peso: p.peso, soma: 0 }
+        mapa[chave] = { ...p.tipo, unidades: 0, metragem: p.metragem, soma: 0 }
       }
       mapa[chave].unidades += 1
       mapa[chave].soma += p.valor
     }
     const linhas = Object.values(mapa).sort((a, b) => (a.quartos - b.quartos) || (a.vagas - b.vagas))
-    const somaPesosTipo = linhas.reduce((soma, l) => soma + l.peso * l.unidades, 0)
+    const somaMetrosTipo = linhas.reduce((soma, l) => soma + l.metragem * l.unidades, 0)
     return linhas.map((l) => {
-      const pesoTotal = l.peso * l.unidades
+      const metrosTotal = l.metragem * l.unidades
       return {
         ...l,
-        pesoTotal,
-        percentual: somaPesosTipo > 0 ? (pesoTotal / somaPesosTipo) * 100 : 0,
+        metrosTotal,
+        percentual: somaMetrosTipo > 0 ? (metrosTotal / somaMetrosTipo) * 100 : 0,
         valorUnidade: l.unidades > 0 ? l.soma / l.unidades : 0
       }
     })
@@ -376,39 +406,39 @@ export default function GerarCotas() {
 
   const unidadesNoRateio = tiposRateio.reduce((soma, linha) => soma + linha.unidades, 0)
 
-  // Linhas exibidas na tabela de rateio: TODOS os tipos que existem no cadastro
-  // (com unidades, percentual e valor reais) + os tipos adicionados manualmente
-  // no seletor. Para um tipo adicionado que ainda tem 0 unidade a tabela mostra
-  // uma SIMULAÇÃO com 1 unidade hipotética: qual seria o % e o valor da cota se
-  // existisse uma unidade desse tipo — marcada com o badge "simulado" e com um
-  // asterisco nos números. A simulação NÃO entra no Total nem na prévia: é só
-  // para conferir o peso/percentual/valor do tipo antes de cadastrá-lo.
-  // O peso é sempre automático (quartos + vagas, mínimo 1).
+  // Linhas exibidas na tabela de rateio: TODOS os tipos que existem no
+  // cadastro (com unidades, percentual e valor reais) + os tipos adicionados
+  // manualmente no seletor. Para um tipo adicionado que ainda tem 0 unidade a
+  // tabela mostra uma SIMULAÇÃO com 1 unidade hipotética: qual seria o % e o
+  // valor da cota se existisse uma unidade desse tipo — marcada com o badge
+  // "simulado" e com um asterisco nos números. A simulação NÃO entra no Total
+  // nem na prévia: é só para conferir a metragem/percentual/valor do tipo
+  // antes de cadastrá-lo.
   const linhasTabela = useMemo(() => {
     const porChave = {}
     for (const linha of tiposRateio) porChave[linha.chave] = linha
     for (const extra of tiposExtras) {
       const tipo = tipoApto(extra?.quartos, extra?.vagas)
       if (porChave[tipo.chave]) continue
-      const peso = tipo.pesoPadrao
-      const somaComExtra = somaPesos + peso
+      const metragem = metragemDoTipo(tipo)
+      const somaComExtra = somaMetros + metragem
       porChave[tipo.chave] = {
         ...tipo,
         unidades: 0,
-        peso,
-        pesoTotal: 0,
+        metragem,
+        metrosTotal: 0,
         soma: 0,
         percentual: 0,
         valorUnidade: 0,
         extra: true,
         // Simulação: 1 unidade deste tipo somada às unidades reais.
-        pctSimulado: somaComExtra > 0 ? (peso / somaComExtra) * 100 : 0,
-        valorSimulado: somaComExtra > 0 && totalCotas > 0 ? (totalCotas * peso) / somaComExtra : 0,
-        pesoSomaSimulada: somaComExtra
+        pctSimulado: somaComExtra > 0 ? (metragem / somaComExtra) * 100 : 0,
+        valorSimulado: somaComExtra > 0 && totalCotas > 0 ? (totalCotas * metragem) / somaComExtra : 0,
+        metrosSomaSimulada: somaComExtra
       }
     }
     return Object.values(porChave).sort((a, b) => (a.quartos - b.quartos) || (a.vagas - b.vagas))
-  }, [tiposRateio, tiposExtras, somaPesos, totalCotas])
+  }, [tiposRateio, tiposExtras, somaMetros, totalCotas, metragemDoTipo])
 
   // Adiciona o tipo escolhido nos seletores (ignora se esse tipo já está na
   // tabela — inclusive quando já existe no cadastro).
@@ -440,7 +470,7 @@ export default function GerarCotas() {
     }
     setGerando(true)
     setMensagem('')
-    const locais = load(chaveCobrancas(condominioId)) || []
+    const locais = [...cobrancas]
     const emitidoPor = userProfile?.nome || userProfile?.email || 'sistema'
     let criados = 0
     let falhas = 0
@@ -455,22 +485,32 @@ export default function GerarCotas() {
         descricao: descricao.trim() || `Cota condominial ${rotuloMes(mesRef)}`,
         valor: item.valor,
         dataVencimento,
-        status: 'pendente',
+        status: 'gerado',
+        tipo: 'mensalidade',
+        nossoNumero: gerarNossoNumero(),
         observacoes: '',
-        pagaEm: '',
+        pagoEm: '',
         baixaPor: '',
         emitidoPor,
         cotaRef: mesRef,
-        // Rastreabilidade do rateio: tipo/peso da unidade, total rateado e a
-        // origem do total (despesas do mês ou mensalidade fixa do condomínio).
+        // Rastreabilidade do rateio: tipo/metragem da unidade, total rateado
+        // e a origem do total (despesas do mês ou mensalidade fixa).
         tipoApartamento: item.tipo?.rotulo || '',
-        pesoRateio: item.peso,
+        metragemRateio: item.metragem,
+        metrosTotalRateio: somaMetros,
         cotaTotal: totalCotas,
-        cotaOrigem: mensalidadeFixaAtiva ? 'mensalidade-fixa' : 'despesas'
+        cotaOrigem: mensalidadeFixaAtiva ? 'mensalidade-fixa' : 'despesas+orcamento',
+        cotaDetalhe: mensalidadeFixaAtiva ? null : {
+          despesas: incluirDespesas ? somaDespesasMes : 0,
+          orcamentoAprovado: incluirOrcamento ? somaOrcamentoAprovadoMes : 0,
+          orcamentoMesAprovado,
+          outrasDespesas: numeroDe(outrasDespesas),
+          fundoReserva: numeroDe(fundoReserva)
+        },
       }
       try {
         if (firestoreAtivo) {
-          await addDoc(collection(db, 'tenants', condominioId, 'cobrancas'), {
+          await addDoc(collection(db, 'tenants', condominioId, COLECAO_BOLETOS), {
             ...dados, criadoEm: nowISO(), atualizadoEm: nowISO(), condominioId, removido: false
           })
         } else {
@@ -490,8 +530,7 @@ export default function GerarCotas() {
     }
 
     if (!firestoreAtivo && criados > 0) {
-      save(chaveCobrancas(condominioId), locais)
-      setCobrancas(locais)
+      atualizarLocal(locais)
     }
 
     const ignorados = jaGeradosCount
@@ -507,26 +546,28 @@ export default function GerarCotas() {
 
   // Baixa da cobrança: paga, reabrir ou cancelar (síndico/zelador/portaria).
   async function atualizarStatusCobranca(cobranca, novoStatus) {
-    if (novoStatus === 'cancelada' && !window.confirm(`Cancelar a cobrança de ${cobranca.moradorNome}?`)) return
+    if (novoStatus === 'cancelado' && !window.confirm(`Cancelar a cobrança de ${cobranca.moradorNome}?`)) return
     const alteracao = { status: novoStatus, atualizadoEm: nowISO() }
-    if (novoStatus === 'paga') {
-      alteracao.pagaEm = nowISO()
+    if (novoStatus === 'pago') {
+      alteracao.pagoEm = nowISO()
       alteracao.baixaPor = userProfile?.nome || userProfile?.email || 'sistema'
+    } else {
+      alteracao.pagoEm = ''
     }
-    try {
-      if (firestoreAtivo) {
-        await updateDoc(doc(db, 'tenants', condominioId, 'cobrancas', cobranca.id), alteracao)
-      } else {
-        throw new Error('sem-firestore')
+    if (firestoreAtivo) {
+      try {
+        await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(cobranca), cobranca.id), alteracao)
+        return
+      } catch (erro) {
+        console.error('Erro ao atualizar cobrança:', erro)
+        setMensagem('Não foi possível atualizar a cobrança. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
+        return
       }
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao atualizar cobrança:', erro)
-      const locais = (load(chaveCobrancas(condominioId)) || []).map((c) => (
-        c.id === cobranca.id ? { ...c, ...alteracao } : c
-      ))
-      save(chaveCobrancas(condominioId), locais)
-      setCobrancas(locais)
     }
+    atualizarLocal((atuais) => atuais.map((c) => (
+      c.id === cobranca.id ? { ...c, ...alteracao } : c
+    )))
   }
 
   // Edição de uma cobrança gerada: valor, vencimento, descrição, observações.
@@ -541,20 +582,20 @@ export default function GerarCotas() {
   async function atualizarCobranca(cobranca, partes) {
     const agora = nowISO()
     const alteracao = { ...partes, atualizadoEm: agora }
-    try {
-      if (firestoreAtivo) {
-        await updateDoc(doc(db, 'tenants', condominioId, 'cobrancas', cobranca.id), alteracao)
-      } else {
-        throw new Error('sem-firestore')
+    if (firestoreAtivo) {
+      try {
+        await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(cobranca), cobranca.id), alteracao)
+        return
+      } catch (erro) {
+        console.error('Erro ao editar cobrança:', erro)
+        setMensagem('Não foi possível editar a cobrança. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
+        return
       }
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao editar cobrança:', erro)
-      const locais = (load(chaveCobrancas(condominioId)) || []).map((c) =>
-        c.id === cobranca.id ? { ...c, ...alteracao } : c
-      )
-      save(chaveCobrancas(condominioId), locais)
-      setCobrancas(locais)
     }
+    atualizarLocal((atuais) => atuais.map((c) => (
+      c.id === cobranca.id ? { ...c, ...alteracao } : c
+    )))
   }
 
   // Exclusão lógica da cobrança: sai das listagens (administração e
@@ -564,21 +605,20 @@ export default function GerarCotas() {
     const valor = formatarValorBoleto(cobranca.valor)
     if (!window.confirm(`Excluir a cobrança de ${nome} (${valor})?`)) return
     const alteracao = { removido: true, removidoEm: nowISO(), atualizadoEm: nowISO() }
-    try {
-      if (firestoreAtivo) {
-        await updateDoc(doc(db, 'tenants', condominioId, 'cobrancas', cobranca.id), alteracao)
+    if (firestoreAtivo) {
+      try {
+        await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(cobranca), cobranca.id), alteracao)
         setMensagem('Cobrança excluída.')
         setTipoMsg('success')
-      } else {
-        throw new Error('sem-firestore')
+      } catch (erro) {
+        console.error('Erro ao excluir cobrança:', erro)
+        setMensagem('Não foi possível excluir a cobrança. Verifique a conexão e tente novamente.')
+        setTipoMsg('error')
       }
-    } catch (erro) {
-      if (erro?.message !== 'sem-firestore') console.error('Erro ao excluir cobrança:', erro)
-      const locais = (load(chaveCobrancas(condominioId)) || []).map((c) =>
+    } else {
+      atualizarLocal((atuais) => atuais.map((c) => (
         c.id === cobranca.id ? { ...c, ...alteracao } : c
-      )
-      save(chaveCobrancas(condominioId), locais)
-      setCobrancas(locais)
+      )))
       setMensagem('Cobrança excluída neste dispositivo.')
       setTipoMsg('info')
     }
@@ -606,13 +646,27 @@ export default function GerarCotas() {
     <div className="card" style={{ marginBottom: 24 }}>
       <div className="card-header">
         <h3>Cobrança mensal dos moradores</h3>
+        <button
+          type="button"
+          className="btn btn-ghost btn-small"
+          onClick={() => setSecaoAberta((aberto) => !aberto)}
+          aria-expanded={secaoAberta}
+        >
+          {secaoAberta ? '▾ Recolher' : '▸ Expandir'}
+        </button>
       </div>
+      {secaoAberta && (
       <div className="card-body">
         <p className="hint" style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 15.6 }}>
           Calcula a cota de cada morador do mês e gera as cobranças de uma vez.
           Cada morador acompanha as cobranças dele aqui nas Configurações
           ("Minhas cobranças") e a administração dá a baixa quando forem quitadas.
         </p>
+
+        {erroSincronizacao && (
+          <div className="alert alert-error" style={{ marginBottom: 12 }}>{erroSincronizacao}</div>
+        )}
+        {carregandoCobrancas && <div className="loading">Sincronizando cobranças...</div>}
 
         {mensagem && (
           <div className={'alert ' + (tipoMsg === 'error' ? 'alert-error' : tipoMsg === 'success' ? 'alert-success' : 'alert-info')}>
@@ -655,6 +709,20 @@ export default function GerarCotas() {
           </span>
         </label>
 
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={incluirOrcamento}
+            onChange={(e) => setIncluirOrcamento(e.target.checked)}
+          />
+          <span>
+            Somar o orçamento aprovado de {rotuloMes(mesRef)} (
+            {orcamentoMesAprovado
+              ? `aprovado — ${formatarValorBoleto(somaOrcamentoAprovadoMes)}`
+              : 'mês ainda sem as 3 aprovações — R$ 0,00'})
+          </span>
+        </label>
+
         <div
           style={{
             marginTop: 12, padding: '10px 14px', borderRadius: 8,
@@ -664,7 +732,7 @@ export default function GerarCotas() {
           <div>
             Total a ratear: <strong>{formatarValorBoleto(totalCotas)}</strong>
             {' '}· {ativos.length} morador(es) incluído(s) ·{' '}
-            {somaPesos} peso no rateio
+            {formatarMetros(somaMetros)} no rateio
             {mensalidadeFixaAtiva && ' (mensalidade fixa)'}
           </div>
 
@@ -680,7 +748,7 @@ export default function GerarCotas() {
               <strong>
                 Nenhum valor a ratear em {rotuloMes(mesRef)} — por isso as cotas ficam em R$ 0,00.
               </strong>{' '}
-              Não há despesas lançadas neste mês nem outras despesas/fundo de reserva informados, e a
+              Não há despesas lançadas neste mês, orçamento aprovado, outras despesas/fundo de reserva informados, e a
               mensalidade fixa está desativada. Para o rateio ter valor, lance as despesas em{' '}
               <strong>Despesas</strong> (com a data no mês de referência) ou ative{' '}
               <strong>“Fixar uma mensalidade do condomínio”</strong> na tabela logo abaixo.
@@ -712,9 +780,8 @@ export default function GerarCotas() {
           >
             <div>
               <strong>Fórmula:</strong> cota da unidade ={' '}
-              <em>Total a ratear × peso ÷ soma dos pesos</em>, sendo{' '}
-              <strong>peso = quartos + vagas de garagem</strong>{' '}
-              da unidade (mínimo 1) — automático, pelo cadastro em Usuários
+              <em>Total a ratear × metragem da unidade ÷ soma das metragens</em> — quem
+              ocupa mais espaço (mais m²) paga uma parcela maior da mensalidade
             </div>
             <div style={{ color: 'var(--ink-soft)' }}>
               {mensalidadeFixaAtiva ? (
@@ -726,6 +793,7 @@ export default function GerarCotas() {
               ) : (
                 <>
                   Total deste mês: {incluirDespesas ? formatarValorBoleto(somaDespesasMes) : formatarValorBoleto(0)} de despesas
+                  {' '}+ {incluirOrcamento ? formatarValorBoleto(somaOrcamentoAprovadoMes) : formatarValorBoleto(0)} de orçamento aprovado
                   {' '}+ {formatarValorBoleto(numeroDe(outrasDespesas))} de outras despesas
                   {' '}+ {formatarValorBoleto(numeroDe(fundoReserva))} de fundo de reserva
                   {' '}= {formatarValorBoleto(totalCotas)}
@@ -733,27 +801,32 @@ export default function GerarCotas() {
               )}
             </div>
             <div style={{ color: 'var(--ink-soft)' }}>
-              Neste rateio: {formatarValorBoleto(totalCotas)} ÷ {somaPesos} de peso ={' '}
-              <strong>{formatarValorPreciso(valorPorPeso)}</strong> por peso — cada unidade recebe
-              esse valor multiplicado pelo peso dela
+              Neste rateio: {formatarValorBoleto(totalCotas)} ÷ {formatarMetros(somaMetros)} ={' '}
+              <strong>{formatarValorPreciso(valorPorMetro)}/m²</strong> — cada unidade recebe
+              esse valor multiplicado pela metragem dela
             </div>
             <ul style={{ margin: '6px 0 0', paddingLeft: 18, color: 'var(--ink-soft)' }}>
               <li>
-                <strong>Peso = quartos + vagas de garagem</strong> da unidade, com mínimo 1 —
-                automático a partir do cadastro em Usuários. Quem ocupa mais espaço (mais quartos
-                e/ou mais vagas) paga uma parcela maior; studio/quitinete sem quarto e sem vaga
-                continua no rateio com peso 1.
+                A metragem é definida por <strong>tipo de apartamento</strong> na tabela
+                abaixo (coluna “Metragem (m²) por unidade”) e vale para todas as
+                unidades daquele tipo — quartos e vagas servem só para identificar o
+                tipo (ex.: “2 quartos”).
+              </li>
+              <li>
+                Ao gerar a tabela pela primeira vez, a metragem já vem preenchida com
+                uma estimativa (30 m² de área comum + 25 m² por quarto + 12,5 m² por
+                vaga) — ajuste para a metragem real de cada tipo antes de gerar.
               </li>
               <li>
                 <strong>100% das unidades participam</strong>: todo tipo de apartamento entra no
-                rateio, e quem tem peso maior paga uma parcela maior da mensalidade.
+                rateio, e quem tem mais metragem paga uma parcela maior da mensalidade.
               </li>
               <li>
                 Com a <strong>mensalidade fixa do condomínio</strong> ativada, o total a ratear passa
                 a ser esse valor informado, em vez das despesas do mês.
               </li>
               <li>
-                Unidades marcadas como <strong>Isento</strong> na prévia saem da soma dos pesos e
+                Unidades marcadas como <strong>Isento</strong> na prévia saem da soma das metragens e
                 ficam com R$ 0,00.
               </li>
               <li>
@@ -776,7 +849,7 @@ export default function GerarCotas() {
             <strong style={{ fontSize: 14 }}>
               Rateio por tipo de apartamento
               <span className="badge badge-gray" style={{ marginLeft: 8 }}>
-                {unidadesNoRateio} unidade(s) · {somaPesos} peso
+                {unidadesNoRateio} unidade(s) · {formatarMetros(somaMetros)}
               </span>
               {totalCotas <= 0 && (
                 <span className="badge badge-orange" style={{ marginLeft: 8 }}>
@@ -828,7 +901,7 @@ export default function GerarCotas() {
           </div>
 
           {/* Adicionar qualquer tipo de apartamento (quartos × vagas) para
-              conferir antecipadamente o peso automático, o percentual e o valor
+              conferir antecipadamente a metragem, o percentual e o valor
               que ele teria no rateio. */}
           <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
             <div className="field" style={{ margin: 0, maxWidth: 190 }}>
@@ -876,7 +949,7 @@ export default function GerarCotas() {
                     <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>Tipo de apartamento</th>
                     <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>Unidades</th>
                     <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
-                      Peso por unidade (quartos + vagas)
+                      Metragem (m²) por unidade
                     </th>
                     <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>% do rateio</th>
                     <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>Valor por unidade</th>
@@ -908,16 +981,16 @@ export default function GerarCotas() {
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
                         <span
                           className="badge badge-gray"
-                          title={`Automático: ${l.quartos} quarto(s) + ${l.vagas} vaga(s)`}
+                          title={`Metragem do tipo ${l.rotulo}`}
                         >
-                          {l.peso}
+                          {formatarMetros(l.metragem)}
                         </span>
                       </td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
                         {l.unidades > 0 ? (
                           formatarPercentual(l.percentual)
                         ) : (
-                          <span title={`Simulação com 1 unidade deste tipo: peso ${l.peso} ÷ ${l.pesoSomaSimulada} de peso no total`}>
+                          <span title={`Simulação com 1 unidade deste tipo: metragem ${formatarMetros(l.metragem)} ÷ ${formatarMetros(l.metrosSomaSimulada)} de metragem no total`}>
                             {formatarPercentual(l.pctSimulado)}*
                             {' '}<span className="badge badge-gray">simulado</span>
                           </span>
@@ -937,7 +1010,7 @@ export default function GerarCotas() {
                   <tr>
                     <td style={{ padding: '8px', fontWeight: 600 }}>Total</td>
                     <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>{unidadesNoRateio}</td>
-                    <td style={{ padding: '8px', fontWeight: 600 }}>{somaPesos} peso</td>
+                    <td style={{ padding: '8px', fontWeight: 600 }}>{formatarMetros(somaMetros)}</td>
                     <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>100,00%</td>
                     <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>
                       {formatarValorBoleto(totalCotas)}
@@ -949,12 +1022,9 @@ export default function GerarCotas() {
           )}
 
           <p className="hint" style={{ marginTop: 8 }}>
-            O peso é <strong>automático</strong>: <em>quartos + vagas de garagem</em> da unidade
-            (mínimo 1), lido do cadastro em Usuários — quem ocupa mais espaço paga mais. Cada unidade
-            paga <em>peso ÷ soma dos pesos × total a ratear</em>. Ex.: 1 unidade de cada tipo —
-            studio (peso 1), 1 quarto (peso 1), 2 quartos (peso 2) e 3 quartos (peso 3) = 7 de peso;
-            com R$ 10.000,00 a ratear, cada peso vale R$ 1.428,57 e a cota é 1×, 1×, 2× e 3× esse
-            valor. Todos os apartamentos participam do rateio. Os tipos adicionados no seletor
+            A metragem é definida por <strong>tipo de apartamento</strong> e pode ser ajustada
+            na tabela acima; ela é usada no cálculo da cota. Cada unidade paga{' '}
+            <em>metragem ÷ soma das metragens × total a ratear</em>. Os tipos adicionados no seletor
             mostram com asterisco (*) uma <strong>simulação com 1 unidade hipotética</strong> — o %
             e o valor que 1 unidade desse tipo teria somada às unidades reais (sem entrar no Total
             nem na prévia). Eles passam a valer de verdade no rateio assim que houver uma unidade
@@ -998,8 +1068,8 @@ export default function GerarCotas() {
                       <div className="boleto-dados">
                         <span>Valor: <strong>{formatarValorBoleto(c.valor)}</strong></span>
                         <span>Vencimento: <strong>{c.dataVencimento || '-'}</strong></span>
-                        {status === 'paga' && c.pagaEm && (
-                          <span>Pago em: <strong>{new Date(c.pagaEm).toLocaleDateString('pt-BR')}</strong></span>
+                        {status === 'pago' && c.pagoEm && (
+                          <span>Pago em: <strong>{new Date(c.pagoEm).toLocaleDateString('pt-BR')}</strong></span>
                         )}
                       </div>
                     </div>
@@ -1015,16 +1085,16 @@ export default function GerarCotas() {
                           <button
                             type="button"
                             className="btn btn-ghost btn-small"
-                            onClick={() => atualizarStatusCobranca(c, 'paga')}
+                            onClick={() => atualizarStatusCobranca(c, 'pago')}
                           >
                             Marcar como paga
                           </button>
                         )}
-                        {(status === 'paga' || status === 'cancelada') && (
+                        {(status === 'pago' || status === 'cancelado') && (
                           <button
                             type="button"
                             className="btn btn-ghost btn-small"
-                            onClick={() => atualizarStatusCobranca(c, 'pendente')}
+                            onClick={() => atualizarStatusCobranca(c, 'gerado')}
                           >
                             Reabrir
                           </button>
@@ -1033,7 +1103,7 @@ export default function GerarCotas() {
                           <button
                             type="button"
                             className="btn btn-ghost btn-small btn-danger"
-                            onClick={() => atualizarStatusCobranca(c, 'cancelada')}
+                            onClick={() => atualizarStatusCobranca(c, 'cancelado')}
                           >
                             Cancelar
                           </button>
@@ -1152,65 +1222,89 @@ export default function GerarCotas() {
           </div>
         ) : (
           <>
-            <strong style={{ display: 'block', marginTop: 14, fontSize: 14 }}>
-              Prévia do rateio — {rotuloMes(mesRef)}
-              {jaGeradosCount > 0 && (
-                <span className="badge badge-gray" style={{ marginLeft: 8 }}>
-                  {jaGeradosCount} já gerado(s)
-                </span>
-              )}
-            </strong>
-            <div className="boletos-lista" style={{ marginTop: 8 }}>
-              {previa.map((p) => (
-                <div key={p.key} className="boleto-item">
-                  <div className="boleto-info">
-                    <div className="boleto-header">
-                      <strong>{p.nome}{p.unidade ? ` — ${p.unidade}` : ''}</strong>
-                      {!p.isento && p.quartos > 0 && (
-                        <span className="badge badge-blue">{p.quartos} quarto{p.quartos > 1 ? 's' : ''}</span>
-                      )}
-                      {!p.isento && p.vagas > 0 && (
-                        <span className="badge badge-gray">{p.vagas} vaga{p.vagas > 1 ? 's' : ''} de garagem</span>
-                      )}
-                      {p.isento && <span className="badge badge-gray">Isento</span>}
-                      {p.jaGerado && <span className="badge badge-green">Cobrança já gerada</span>}
-                    </div>
-                    {p.email && (
-                      <div className="boleto-dados">
-                        <span>{p.email}</span>
-                      </div>
-                    )}
-                    <div className="boleto-dados" style={{ fontSize: 12 }}>
-                      <span>
-                        {p.isento
-                          ? `Isento — fora da soma dos pesos (${somaPesos} peso)`
-                          : `${formatarValorBoleto(totalCotas)} × peso ${p.peso} `
-                            + `(${p.tipo?.rotulo || 'tipo de apartamento'}) ÷ ${somaPesos} `
-                            + `= ${formatarValorBoleto(p.valor)}`}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="boleto-actions" style={{ alignItems: 'center' }}>
-                    <strong>{p.isento ? '—' : formatarValorBoleto(p.valor)}</strong>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                      <input
-                        type="checkbox"
-                        checked={p.isento}
-                        onChange={(e) => setIsentos((atual) => ({ ...atual, [p.key]: e.target.checked }))}
-                      />
-                      Isento
-                    </label>
-                  </div>
-                </div>
-              ))}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 14,
+                gap: 8,
+                flexWrap: 'wrap'
+              }}
+            >
+              <strong style={{ fontSize: 14 }}>
+                Prévia do rateio — {rotuloMes(mesRef)}
+                {jaGeradosCount > 0 && (
+                  <span className="badge badge-gray" style={{ marginLeft: 8 }}>
+                    {jaGeradosCount} já gerado(s)
+                  </span>
+                )}
+              </strong>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                onClick={() => setPreviaAberta((aberto) => !aberto)}
+                aria-expanded={previaAberta}
+              >
+                {previaAberta ? '▾ Recolher' : '▸ Expandir'}
+              </button>
             </div>
-            <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 14 }}>
-              Soma das cotas da prévia: {formatarValorBoleto(somaRateada)}
-              {pendentes.length === 0 && jaGeradosCount > 0 && ' — todos os moradores já possuem cota para este mês.'}
-            </p>
+            {previaAberta && (
+              <>
+                <div className="boletos-lista" style={{ marginTop: 8 }}>
+                  {previa.map((p) => (
+                    <div key={p.key} className="boleto-item">
+                      <div className="boleto-info">
+                        <div className="boleto-header">
+                          <strong>{p.nome}{p.unidade ? ` — ${p.unidade}` : ''}</strong>
+                          {!p.isento && p.quartos > 0 && (
+                            <span className="badge badge-blue">{p.quartos} quarto{p.quartos > 1 ? 's' : ''}</span>
+                          )}
+                          {!p.isento && p.vagas > 0 && (
+                            <span className="badge badge-gray">{p.vagas} vaga{p.vagas > 1 ? 's' : ''} de garagem</span>
+                          )}
+                          {p.isento && <span className="badge badge-gray">Isento</span>}
+                          {p.jaGerado && <span className="badge badge-green">Cobrança já gerada</span>}
+                        </div>
+                        {p.email && (
+                          <div className="boleto-dados">
+                            <span>{p.email}</span>
+                          </div>
+                        )}
+                        <div className="boleto-dados" style={{ fontSize: 12 }}>
+                          <span>
+                            {p.isento
+                              ? `Isento — fora da soma das metragens (${formatarMetros(somaMetros)})`
+                              : `${formatarValorBoleto(totalCotas)} × metragem ${formatarMetros(p.metragem)} `
+                                + `(${p.tipo?.rotulo || 'tipo de apartamento'}) ÷ ${formatarMetros(somaMetros)} `
+                                + `= ${formatarValorBoleto(p.valor)}`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="boleto-actions" style={{ alignItems: 'center' }}>
+                        <strong>{p.isento ? '—' : formatarValorBoleto(p.valor)}</strong>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={p.isento}
+                            onChange={(e) => setIsentos((atual) => ({ ...atual, [p.key]: e.target.checked }))}
+                          />
+                          Isento
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="hint" style={{ marginTop: 8, color: 'var(--ink-soft)', fontSize: 14 }}>
+                  Soma das cotas da prévia: {formatarValorBoleto(somaRateada)}
+                  {pendentes.length === 0 && jaGeradosCount > 0 && ' — todos os moradores já possuem cota para este mês.'}
+                </p>
+              </>
+            )}
           </>
         )}
       </div>
+      )}
     </div>
   )
 }

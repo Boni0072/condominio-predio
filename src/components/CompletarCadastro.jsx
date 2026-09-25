@@ -10,6 +10,8 @@ export default function CompletarCadastro() {
   const [codigo, setCodigo] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
   const [unidade, setUnidade] = useState('')
+  const [quartos, setQuartos] = useState('1')
+  const [vagas, setVagas] = useState('0')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
 
@@ -23,7 +25,13 @@ export default function CompletarCadastro() {
     }
     setCarregando(true)
     try {
-      await completarCadastroMorador({ codigo, whatsapp: whatsappLimpo, unidade: unidade.trim() })
+      await completarCadastroMorador({
+        codigo,
+        whatsapp: whatsappLimpo,
+        unidade: unidade.trim(),
+        quartos: Math.max(0, Math.min(20, parseInt(quartos, 10) || 0)),
+        vagas: Math.max(0, Math.min(20, parseInt(vagas, 10) || 0))
+      })
       // Ao concluir, o perfil é atualizado no contexto e o App entra automaticamente.
     } catch (err) {
       setErro(err?.message || 'Não foi possível concluir o cadastro. Tente novamente.')
@@ -65,6 +73,15 @@ export default function CompletarCadastro() {
               placeholder="Ex.: Bloco A, apto 101"
               required
             />
+          </div>
+          <div className="field">
+            <label htmlFor="quartos-completar">Quartos</label>
+            <input id="quartos-completar" type="number" min="0" max="20" value={quartos} onChange={(e) => setQuartos(e.target.value)} />
+            <p className="login-hint">Use 0 para studio/quitinete. Esse dado define o tipo usado no rateio por metragem.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="vagas-completar">Vagas de garagem</label>
+            <input id="vagas-completar" type="number" min="0" max="20" value={vagas} onChange={(e) => setVagas(e.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="whatsapp-completar">WhatsApp (para notificações)</label>

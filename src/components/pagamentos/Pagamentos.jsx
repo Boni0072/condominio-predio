@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { PERFIS_GESTORES_PAGAMENTO, PERFIS_VISAO_GERAL } from './tipos.js'
 import ConsultarPagamentos from './ConsultarPagamentos.jsx'
+import EmissaoBoleto from './EmissaoBoleto.jsx'
 
 // Redirecionamento com guarda anti-loop: navega somente quando o destino é
 // DIFERENTE da URL atual. Sem essa guarda, um <Navigate> que resolve para a
@@ -16,8 +17,8 @@ function RedirecionarPara({ to }) {
 
 export default function Pagamentos() {
   const { userProfile } = useAuth()
-  // Gestor pode ver o PIX configurado; conselheiro apenas
-  // consulta os pagamentos do condomínio; morador consulta os próprios.
+  // Gestores (síndico/zelador/portaria) administram os pagamentos do condomínio;
+  // morador e conselheiro consultam apenas os próprios boletos.
   const podeGerenciar = PERFIS_GESTORES_PAGAMENTO.includes(userProfile?.role)
   const veVisaoGeral = PERFIS_VISAO_GERAL.includes(userProfile?.role)
   const classeLink = ({ isActive }) => 'pagamentos-link' + (isActive ? ' ativo' : '')
@@ -34,7 +35,7 @@ export default function Pagamentos() {
       <div className='page-header'>
         <div>
           <h2>Pagamentos</h2>
-          <p className='sub'>Chave PIX e consulta de pagamentos do condomínio.</p>
+          <p className='sub'>Chave PIX, boleto e consulta de pagamentos do condomínio.</p>
         </div>
       </div>
 
@@ -46,6 +47,19 @@ export default function Pagamentos() {
           <span className='link-icon'>🔍</span>
           <span className='link-text'>{podeGerenciar ? 'Consultar Pagamentos' : 'Meus Pagamentos'}</span>
         </NavLink>
+        {/* Decisão do módulo de Pagamentos (revisão do fluxo do boleto): a opção
+            (A) foi mantida — EmissaoBoleto.jsx continua existindo como tela
+            separada, agora ROTEADA, porque GerarCotas.jsx só gera a mensalidade
+            rateada e a emissão manual segue necessária para cobranças avulsas
+            (multa, serviço extra, evento) e para editar/cancelar baixas.
+            Mesmo assim, o fluxo principal do morador NÃO depende dela: em "Meus
+            Pagamentos" ele gera o boleto da própria mensalidade em um clique. */}
+        {podeGerenciar && (
+          <NavLink to='/pagamentos/emitir' className={classeLink}>
+            <span className='link-icon'>🧾</span>
+            <span className='link-text'>Emitir Boletos</span>
+          </NavLink>
+        )}
       </div>
 
       {/* Os CAMINHOS das rotas continuam RELATIVOS ("contas", nunca "/contas")
@@ -55,6 +69,7 @@ export default function Pagamentos() {
       <Routes>
         <Route index element={<RedirecionarPara to={rotaInicial} />} />
         <Route path='consultar' element={<ConsultarPagamentos />} />
+        {podeGerenciar && <Route path='emitir' element={<EmissaoBoleto />} />}
         <Route path='*' element={<RedirecionarPara to={rotaInicial} />} />
       </Routes>
     </div>

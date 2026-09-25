@@ -25,10 +25,10 @@ export const STATUS_PIX = [
 // configurar contas bancárias/PIX.
 export const PERFIS_GESTORES_PAGAMENTO = ['sindico', 'zelador', 'portaria']
 
-// Perfis que podem CONSULTAR os pagamentos de todo o condomínio: os gestores
-// mais o conselheiro (acompanha as contas para aprovar o orçamento). O morador
-// consulta somente os próprios boletos.
-export const PERFIS_VISAO_GERAL = [...PERFIS_GESTORES_PAGAMENTO, 'conselheiro']
+// Perfis que podem CONSULTAR os pagamentos de todo o condomínio. Regra de
+// privacidade: somente os gestores (síndico, zelador e portaria). Os demais
+// perfis — morador E conselheiro — consultam apenas os próprios boletos.
+export const PERFIS_VISAO_GERAL = [...PERFIS_GESTORES_PAGAMENTO]
 
 export const BANCO_OPCOES = [
   { codigo: '001', nome: 'Banco do Brasil' },

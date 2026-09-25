@@ -90,6 +90,11 @@ export default function Layout() {
               Usuários
             </NavLink>
           )}
+          {temAcesso(userProfile, 'pagamentos') && (
+            <NavLink to="/pagamentos" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+              Pagamentos
+            </NavLink>
+          )}
           {temAcesso(userProfile, 'configuracoes') && (
             <NavLink to="/configuracoes" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
               Configurações

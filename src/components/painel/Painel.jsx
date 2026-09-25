@@ -2,11 +2,18 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../context/AppContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { formatDateTime, formatDate, formatCurrency, getMonthKey } from '../../utils/storage.js'
+import { formatDateTime, formatDate, formatCurrency, formatRotuloGrafico, getMonthKey } from '../../utils/storage.js'
 import { AvisoEncomendaWhatsApp, moradorDaUnidade } from '../shared/AvisoEncomendaWhatsApp.jsx'
 import { OrcamentoModal } from '../orcamento/Orcamento.jsx'
 import { somaAprovacoesMes, aprovacoesDoMes } from '../orcamento/orcamentoUtils.js'
-import { temAcesso } from '../../utils/permissoes.js'
+import { useCobrancas } from '../pagamentos/useCobrancas.js'
+import { resumoCobrancasDoMes } from '../pagamentos/cobrancas.js'
+import {
+  temAcesso,
+  filtrarDoUsuario,
+  normalizarParaComparacao,
+  veTodosOsRegistros
+} from '../../utils/permissoes.js'
 
 const HOJE = new Date()
   .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
@@ -29,10 +36,78 @@ const CATEGORIAS_DESPESA = {
   jardinagem: '🌿 Jardinagem',
   piscina: '🏊 Piscina',
   elevador: '🛗 Elevador',
+  folha_pagamento: '💼 Folha de Pagamento',
   outros: '📦 Outros'
 }
 
 const MESES_ORCAMENTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+const MESES_ORCAMENTO_LONGO = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+// Modal aberto pelo botão "Abrir orçamento" no Painel: lista os aprovadores
+// de cada mês do ano, com nome + data e hora da assinatura.
+function AprovadoresOrcamentoModal({ ano, aprovacoes = [], onFechar }) {
+  const porMes = MESES_ORCAMENTO_LONGO.map((nome, indice) => {
+    const mes = indice + 1
+    const mapa = new Map()
+    aprovacoesDoMes(aprovacoes, ano, mes).forEach((a) => {
+      const chave = a.usuarioId || a.usuarioEmail || a.usuarioNome || a.id
+      if (!chave || mapa.has(chave)) return
+      mapa.set(chave, {
+        chave,
+        nome: a.usuarioNome || a.usuarioEmail || 'Usuário',
+        papel: a.usuarioRole || '',
+        criadoEm: a.criadoEm || ''
+      })
+    })
+    const lista = [...mapa.values()].sort((x, y) => new Date(x.criadoEm || 0) - new Date(y.criadoEm || 0))
+    return { nome, mes, lista }
+  })
+  const total = porMes.reduce((soma, m) => soma + m.lista.length, 0)
+
+  return (
+    <div className="modal-overlay" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
+      <div className="modal orcamento-modal" role="dialog" aria-modal="true" aria-labelledby="aprovadores-orcamento-titulo">
+        <div className="modal-header">
+          <div>
+            <h2 id="aprovadores-orcamento-titulo">Aprovadores do orçamento {ano}</h2>
+            <p className="sub">{total} assinatura(s) no ano · quem aprovou cada mês, com data e hora</p>
+          </div>
+          <button type="button" className="modal-fechar" onClick={onFechar} aria-label="Fechar">×</button>
+        </div>
+        <div className="modal-body">
+          {total === 0 ? (
+            <p className="empty">Nenhum aprovador registrou assinatura em {ano}.</p>
+          ) : (
+            <div className="orcamento-detalhes">
+              {porMes.map((m) => (
+                m.lista.length === 0 ? null : (
+                  <section key={m.mes} className="orcamento-detalhe-categoria">
+                    <div className="orcamento-detalhe-cabecalho">
+                      <strong>{m.nome}</strong>
+                      <span>{m.lista.length} assinatura(s)</span>
+                    </div>
+                    <ul className="orcamento-aprovadores-lista">
+                      {m.lista.map((ap) => (
+                        <li key={ap.chave}>
+                          <span>✓ {ap.nome}{ap.papel ? ` · ${ap.papel}` : ''}</span>
+                          <small>{ap.criadoEm ? formatDateTime(ap.criadoEm) : '—'}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onFechar}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function KpiCard({ to, num, label, tom }) {
   return (
@@ -47,40 +122,21 @@ function noMes(value, periodoMes) {
   return !periodoMes || getMonthKey(value) === periodoMes
 }
 
-function normalizarUnidade(valor) {
-  return String(valor || '').trim().toLowerCase()
-}
-
-// Regra de privacidade: o MORADOR só enxerga registros da própria unidade
-// (ou endereçados ao próprio nome). Demais perfis (síndico, zelador,
-// portaria, master, conselheiro) veem tudo.
-function ehDoProprioMorador(registro, userProfile) {
-  // Apenas estes perfis podem ver todos os registros
-  const ROLES_QUE_VER_TUDO = ['sindico', 'portaria', 'zelador', 'master', 'conselheiro']
-  const role = userProfile?.role
-  
-  // Se o role está na lista de quem pode ver tudo, retorna true
-  if (role && ROLES_QUE_VER_TUDO.includes(role)) {
-    return true
-  }
-  
-  // Morador (ou sem role definido) - filtra por unidade própria
-  const minhaUnidade = normalizarUnidade(userProfile?.unidade)
-  const meuNome = normalizarUnidade(userProfile?.nome)
-  if (minhaUnidade && normalizarUnidade(registro.unidade) === minhaUnidade) return true
-  if (meuNome && normalizarUnidade(registro.destinatario) === meuNome) return true
-  return false
-}
+// Regra de privacidade (ver src/utils/permissoes.js): cada usuário enxerga
+// apenas os PRÓPRIOS registros de visitantes e encomendas (sua unidade/nome).
+// Somente os gestores (síndico, zelador e portaria) veem o condomínio inteiro —
+// conselheiro e morador NÃO entram mais na visão geral.
 
 function NoCondominioList({ periodoMes, userProfile }) {
   const { visitantes, registrarSaida } = useApp()
-  const ehMorador = userProfile?.role === 'morador'
-  const dentro = visitantes
+  // Somente os gestores veem todos os visitantes; os demais veem apenas os da
+  // própria unidade (ver regra de privacidade em utils/permissoes.js).
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const dentro = filtrarDoUsuario(visitantes, userProfile)
     .filter((v) => !v.saida && noMes(v.entrada, periodoMes))
-    .filter((v) => ehDoProprioMorador(v, userProfile))
 
   if (dentro.length === 0) {
-    if (ehMorador && !normalizarUnidade(userProfile?.unidade)) {
+    if (!visaoTotal && !normalizarParaComparacao(userProfile?.unidade)) {
       return (
         <div className="empty-state">
           Sua unidade não está definida no perfil. Avise o síndico para atualizar seu cadastro e ver os visitantes da sua unidade.
@@ -89,7 +145,7 @@ function NoCondominioList({ periodoMes, userProfile }) {
     }
     return (
       <div className="empty-state">
-        {ehMorador ? 'Nenhum visitante na sua unidade agora.' : 'Nenhum visitante no condomínio agora.'}
+        {visaoTotal ? 'Nenhum visitante no condomínio agora.' : 'Nenhum visitante na sua unidade agora.'}
       </div>
     )
   }
@@ -106,7 +162,7 @@ function NoCondominioList({ periodoMes, userProfile }) {
               <span>· entrada {formatDateTime(v.entrada)}</span>
             </div>
           </div>
-          {!ehMorador && (
+          {visaoTotal && (
             <div className="log-actions">
               <button className="btn btn-ghost btn-small" onClick={() => registrarSaida(v.id)}>
                 Registrar saída
@@ -115,12 +171,12 @@ function NoCondominioList({ periodoMes, userProfile }) {
           )}
         </div>
       ))}
-      {dentro.length > 5 && !ehMorador && (
+      {dentro.length > 5 && visaoTotal && (
         <div className="list-mais">
           <Link to="/portaria/visitantes">Ver todos os {dentro.length} visitantes…</Link>
         </div>
       )}
-      {dentro.length > 5 && ehMorador && (
+      {dentro.length > 5 && !visaoTotal && (
         <div className="list-mais">…e mais {dentro.length - 5} visitante(s) da sua unidade.</div>
       )}
     </div>
@@ -130,14 +186,15 @@ function NoCondominioList({ periodoMes, userProfile }) {
 function EncomendasAguardandoList({ periodoMes, userProfile }) {
   const { encomendas, moradores, registrarAvisoEncomenda } = useApp()
   const [encomendaDetalhada, setEncomendaDetalhada] = useState(null)
-  const ehMorador = userProfile?.role === 'morador'
-  const pendentes = encomendas
+  // Somente os gestores veem todas as encomendas; os demais veem apenas as da
+  // própria unidade (regra de privacidade em utils/permissoes.js).
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const pendentes = filtrarDoUsuario(encomendas, userProfile)
     .filter((e) => !e.retiradaEm && noMes(e.chegadaEm, periodoMes))
-    .filter((e) => ehDoProprioMorador(e, userProfile))
     .sort((a, b) => new Date(a.chegadaEm) - new Date(b.chegadaEm))
 
   if (pendentes.length === 0) {
-    if (ehMorador && !normalizarUnidade(userProfile?.unidade)) {
+    if (!visaoTotal && !normalizarParaComparacao(userProfile?.unidade)) {
       return (
         <div className="empty-state">
           Sua unidade não está definida no perfil. Avise o síndico para atualizar seu cadastro e ver suas encomendas.
@@ -146,7 +203,7 @@ function EncomendasAguardandoList({ periodoMes, userProfile }) {
     }
     return (
       <div className="empty-state">
-        {ehMorador ? 'Nenhuma encomenda da sua unidade aguardando retirada.' : 'Nenhuma encomenda aguardando retirada.'}
+        {visaoTotal ? 'Nenhuma encomenda aguardando retirada.' : 'Nenhuma encomenda da sua unidade aguardando retirada.'}
       </div>
     )
   }
@@ -168,7 +225,7 @@ function EncomendasAguardandoList({ periodoMes, userProfile }) {
               </div>
             </div>
             <div className="log-actions">
-              {!ehMorador && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
+              {visaoTotal && <AvisoEncomendaWhatsApp encomenda={e} onAviso={() => registrarAvisoEncomenda(e.id)} />}
               <button className="btn btn-ghost btn-small" type="button" onClick={() => setEncomendaDetalhada(e)}>
                 Abrir
               </button>
@@ -176,12 +233,12 @@ function EncomendasAguardandoList({ periodoMes, userProfile }) {
           </div>
         )
       })}
-      {pendentes.length > 5 && !ehMorador && (
+      {pendentes.length > 5 && visaoTotal && (
         <div className="list-mais">
           <Link to="/portaria/encomendas">Ver todas as {pendentes.length} encomendas…</Link>
         </div>
       )}
-      {pendentes.length > 5 && ehMorador && (
+      {pendentes.length > 5 && !visaoTotal && (
         <div className="list-mais">…e mais {pendentes.length - 5} encomenda(s) da sua unidade.</div>
       )}
       {encomendaDetalhada && (
@@ -227,8 +284,7 @@ function AtividadeRecente({ periodoMes, userProfile }) {
   const [eventoDetalhado, setEventoDetalhado] = useState(null)
   const eventos = []
 
-  visitantes
-    .filter((v) => ehDoProprioMorador(v, userProfile))
+  filtrarDoUsuario(visitantes, userProfile)
     .forEach((v) => {
     eventos.push({
       quando: v.entrada,
@@ -256,8 +312,7 @@ function AtividadeRecente({ periodoMes, userProfile }) {
     }
   })
 
-  encomendas
-    .filter((e) => ehDoProprioMorador(e, userProfile))
+  filtrarDoUsuario(encomendas, userProfile)
     .forEach((e) => {
     const status = e.retiradaEm
       ? `Retirada${e.assinatura ? ' — com assinatura' : ''}`
@@ -522,6 +577,7 @@ function UltimosComunicados({ periodoMes }) {
 export default function Painel() {
   const { userProfile } = useAuth()
   const { visitantes, encomendas, moradores, comunicados, despesas, orcamentos, aprovacoes } = useApp()
+  const { cobrancas } = useCobrancas()
   const somenteLeituraDespesas = userProfile?.role === 'morador'
   const mesAtual = new Date().toISOString().slice(0, 7)
   const [periodoMes, setPeriodoMes] = useState(mesAtual)
@@ -531,34 +587,39 @@ export default function Painel() {
   const [atividadeAberta, setAtividadeAberta] = useState(false)
   const [comunicadosAberto, setComunicadosAberto] = useState(false)
   const [mesOrcamentoDetalhado, setMesOrcamentoDetalhado] = useState(null)
-  const visitantesDoPeriodo = visitantes.filter((v) => noMes(v.entrada, periodoMes))
+  // Modal de aprovadores aberto pelo botão "Abrir orçamento": lista quem
+  // assinou cada mês do ano, com data e hora.
+  const [aprovadoresOrcamentoAberto, setAprovadoresOrcamentoAberto] = useState(false)
+  const visitantesVisiveis = filtrarDoUsuario(visitantes, userProfile)
+  const encomendasVisiveisTotais = filtrarDoUsuario(encomendas, userProfile)
+  const visitantesDoPeriodo = visitantesVisiveis.filter((v) => noMes(v.entrada, periodoMes))
   const visitantesAtivos = visitantesDoPeriodo.filter((v) => !v.saida)
-  const encomendasDoPeriodo = encomendas.filter((e) => noMes(e.chegadaEm, periodoMes))
+  const encomendasDoPeriodo = encomendasVisiveisTotais.filter((e) => noMes(e.chegadaEm, periodoMes))
   const moradoresDoPeriodo = moradores.filter((m) => noMes(m.criadoEm, periodoMes))
   const comunicadosDoPeriodo = comunicados.filter((c) => noMes(c.criadoEm, periodoMes))
   // Total de eventos da "Atividade recente" (mesma lógica da lista): 1 evento por
   // entrada de visitante + 1 por saída + 1 por encomenda + 1 por comunicado, do período.
   const totalAtividade =
-    visitantes
-      .filter((v) => ehDoProprioMorador(v, userProfile))
+    visitantesVisiveis
       .reduce(
         (acc, v) => acc + (noMes(v.entrada, periodoMes) ? 1 : 0) + (v.saida && noMes(v.saida, periodoMes) ? 1 : 0),
         0
       ) +
-    encomendas.filter((e) => ehDoProprioMorador(e, userProfile) && noMes(e.retiradaEm || e.chegadaEm, periodoMes)).length +
+    encomendasVisiveisTotais.filter((e) => noMes(e.retiradaEm || e.chegadaEm, periodoMes)).length +
     comunicados.filter((c) => noMes(c.criadoEm, periodoMes)).length
-  const aguardando = encomendasDoPeriodo.filter((e) => !e.retiradaEm).length
-  const entregues = encomendasDoPeriodo.filter((e) => e.retiradaEm).length
   const unidades = new Set(moradoresDoPeriodo.map((m) => String(m.unidade || '').trim().toLowerCase())).size
 
-  // Privacidade: para o morador, os números exibidos consideram apenas
-  // registros da própria unidade (demais perfis veem o condomínio inteiro).
-  const ehMorador = userProfile?.role === 'morador'
-  const visitantesAtivosVisiveis = visitantesAtivos.filter((v) => ehDoProprioMorador(v, userProfile))
-  const encomendasVisiveis = encomendasDoPeriodo.filter((e) => ehDoProprioMorador(e, userProfile))
+  // Privacidade: visitantes e encomendas só mostram o condomínio inteiro para os
+  // gestores (síndico, zelador e portaria). Morador e conselheiro veem apenas os
+  // registros da própria unidade/nome — inclusive nos cartões de resumo.
+  const visaoTotal = veTodosOsRegistros(userProfile)
+  const visitantesAtivosVisiveis = visitantesAtivos
+  const encomendasVisiveis = encomendasDoPeriodo
   const aguardandoVisivel = encomendasVisiveis.filter((e) => !e.retiradaEm).length
   const entreguesVisivel = encomendasVisiveis.filter((e) => e.retiradaEm).length
-  const destinoPortaria = ehMorador ? '/painel' : null
+  // Sem visão total, os cartões levam de volta ao próprio painel (o usuário não
+  // tem acesso à página da portaria).
+  const destinoPortaria = visaoTotal ? null : '/painel'
 
   // Calcula as despesas dentro do intervalo selecionado
   const despesasMes = despesas.filter((d) => !periodoMes || getMonthKey(d.data || d.criadoEm) === periodoMes)
@@ -571,14 +632,17 @@ export default function Painel() {
     const chave = `${anoOrcamento}-${String(mes).padStart(2, '0')}`
     const itensOrcados = orcamentos
       .filter((item) => Number(item.ano) === anoOrcamento && Number(item.mes) === mes)
+    const resumoCobrancas = resumoCobrancasDoMes(cobrancas, chave)
     const orcado = somaAprovacoesMes(itensOrcados, aprovacoesDoMes(aprovacoes, anoOrcamento, mes))
     const realizado = despesas
       .filter((item) => getMonthKey(item.data || item.criadoEm) === chave)
       .reduce((total, item) => total + (Number(item.valor) || 0), 0)
+    // Saldo disponível: o que sobrou do orçado após o realizado (nunca negativo).
+    const saldo = Math.max(0, orcado - realizado)
     const gastos = despesas.filter((item) => getMonthKey(item.data || item.criadoEm) === chave)
-    return { nome, mes, orcado, realizado, gastos }
+    return { nome, mes, orcado, realizado, saldo, resumoCobrancas, gastos }
   })
-  const maiorOrcamento = Math.max(1, ...dadosOrcamento.flatMap((item) => [item.orcado, item.realizado]))
+  const maiorOrcamento = Math.max(1, ...dadosOrcamento.flatMap((item) => [item.orcado, item.realizado, item.saldo, item.resumoCobrancas.total]))
 
   return (
     <div>
@@ -598,24 +662,24 @@ export default function Painel() {
       <div className="kpi-grid">
         <KpiCard
           to={destinoPortaria || '/portaria/visitantes'}
-          num={ehMorador ? visitantesAtivosVisiveis.length : visitantesAtivos.length}
-          label={ehMorador ? 'visitantes da sua unidade no período' : 'visitantes no período'}
-          tom={(ehMorador ? visitantesAtivosVisiveis.length : visitantesAtivos.length) > 0 ? 'alerta' : 'ok'}
+          num={visitantesAtivosVisiveis.length}
+          label={visaoTotal ? 'visitantes no período' : 'visitantes da sua unidade no período'}
+          tom={visitantesAtivosVisiveis.length > 0 ? 'alerta' : 'ok'}
         />
         <KpiCard
           to={destinoPortaria || '/portaria/encomendas'}
-          num={ehMorador ? aguardandoVisivel : aguardando}
+          num={aguardandoVisivel}
           label="encomendas aguardando retirada"
-          tom={(ehMorador ? aguardandoVisivel : aguardando) > 0 ? 'alerta' : 'ok'}
+          tom={aguardandoVisivel > 0 ? 'alerta' : 'ok'}
         />
         <KpiCard
           to={destinoPortaria || '/portaria/encomendas'}
-          num={ehMorador ? entreguesVisivel : entregues}
-          label={ehMorador ? 'encomendas da sua unidade entregues' : 'encomendas entregues'}
+          num={entreguesVisivel}
+          label={visaoTotal ? 'encomendas entregues' : 'encomendas da sua unidade entregues'}
           tom="ok"
         />
         <KpiCard
-          to={userProfile?.role === 'sindico' ? '/usuarios' : '/painel'}
+          to="/usuarios"
           num={moradoresDoPeriodo.length}
           label={`moradores cadastrados · ${unidades} ${unidades === 1 ? 'unidade' : 'unidades'}`}
         />
@@ -625,37 +689,64 @@ export default function Painel() {
       {/* Orçado x realizado por mês. O conselheiro (perfil que aprova orçamentos
       no sistema) SEMPRE vê o gráfico no painel — era uma regressão quando a
       lista de acessos salva no Firestore ficou sem "orcamento" (dados antigos).
-      O morador continua vendo como transparência. Já o botão "Abrir orçamento"
-      só aparece para quem tem a página Orçamento marcada em "Acesso às páginas". */}
+      O morador continua vendo como transparência. */}
       {(userProfile?.role === 'morador' || userProfile?.role === 'conselheiro' || temAcesso(userProfile, 'orcamento')) && (
         <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header">
             <div>
               <h2>Orçamento {anoOrcamento}</h2>
-              <p className="field-help">Orçado x realizado por mês</p>
+              <p className="field-help">Condômino, Orçado, realizado e saldo por mês</p>
             </div>
-            {temAcesso(userProfile, 'orcamento') && <Link to="/orcamento" className="btn btn-ghost btn-small">Abrir orçamento</Link>}
+          </div>
+          <div className="orcamento-legenda" style={{ padding: '0 4px 8px' }}>
+            <span><i className="legenda-cobrancas" /> Condômino</span>
+            <span><i className="legenda-orcado" /> Orçado</span>
+            <span><i className="legenda-realizado" /> Realizado</span>
+            <span><i className="legenda-saldo" /> Saldo disponível</span>
           </div>
           <div className="orcamento-grafico orcamento-grafico-painel">
-            {dadosOrcamento.map((item) => (
-              <button type="button" className="orcamento-mes" key={item.nome} onClick={() => setMesOrcamentoDetalhado(item.mes)} aria-label={`Ver detalhes do orçamento de ${item.nome}`}>
+            {dadosOrcamento.map((item) => {
+              // Alerta de fundo: orçado maior do que o cobrado no mês
+              // (orcado > 0 e acima das cobranças emitidas).
+              const orcadoAcimaCobrancas = item.orcado > 0 && item.orcado > item.resumoCobrancas.total
+              return (
+              <button
+                type="button"
+                className={`orcamento-mes${orcadoAcimaCobrancas ? ' orcamento-mes-alerta' : ''}`}
+                key={item.nome}
+                onClick={() => setMesOrcamentoDetalhado(item.mes)}
+                aria-label={`Ver detalhes do orçamento de ${item.nome}`}
+              >
                 <div className="orcamento-barras">
                   <span
+                    className="barra barra-cobrancas"
+                    data-rotulo={formatRotuloGrafico(item.resumoCobrancas.total, { simbolo: false, escala: 1000 })}
+                    style={{ height: `${item.resumoCobrancas.total ? Math.max(5, (item.resumoCobrancas.total / maiorOrcamento) * 100) : 0}%` }}
+                    title={`Cobranças do mês: ${formatCurrency(item.resumoCobrancas.total)} (${item.resumoCobrancas.quantidade} emitida(s))`}
+                  />
+                  <span
                     className="barra barra-orcado"
-                    data-rotulo={item.orcado > 0 ? formatCurrency(item.orcado) : ''}
+                    data-rotulo={formatRotuloGrafico(item.orcado, { simbolo: false, escala: 1000 })}
                     style={{ height: `${item.orcado ? Math.max(5, (item.orcado / maiorOrcamento) * 100) : 0}%` }}
                     title={`Orçado: ${formatCurrency(item.orcado)}`}
                   />
                   <span
                     className={`barra barra-realizado${item.realizado > item.orcado && item.realizado > 0 ? ' barra-estourada' : ''}`}
-                    data-rotulo={item.realizado > 0 ? formatCurrency(item.realizado) : ''}
+                    data-rotulo={formatRotuloGrafico(item.realizado, { simbolo: false, escala: 1000 })}
                     style={{ height: `${item.realizado ? Math.max(5, (item.realizado / maiorOrcamento) * 100) : 0}%` }}
                     title={`Realizado: ${formatCurrency(item.realizado)}`}
+                  />
+                  <span
+                    className="barra barra-saldo"
+                    data-rotulo={formatRotuloGrafico(item.saldo, { simbolo: false, escala: 1000 })}
+                    style={{ height: `${item.saldo ? Math.max(5, (item.saldo / maiorOrcamento) * 100) : 0}%` }}
+                    title={`Saldo disponível: ${formatCurrency(item.saldo)}`}
                   />
                 </div>
                 <strong>{item.nome}</strong>
               </button>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -709,8 +800,27 @@ export default function Painel() {
 
       {mesOrcamentoDetalhado && (() => {
         const item = dadosOrcamento.find((mes) => mes.mes === mesOrcamentoDetalhado)
-        return item ? <OrcamentoModal mes={item.mes} ano={anoOrcamento} orcado={item.orcado} despesas={item.gastos} orcamentosDoAno={orcamentos.filter((o) => Number(o.ano) === anoOrcamento)} aprovacoes={aprovacoes} onFechar={() => setMesOrcamentoDetalhado(null)} /> : null
+        return item ? (
+          <OrcamentoModal
+            mes={item.mes}
+            ano={anoOrcamento}
+            orcado={item.orcado}
+            despesas={item.gastos}
+            resumoCobrancas={item.resumoCobrancas}
+            orcamentosDoAno={orcamentos.filter((o) => Number(o.ano) === anoOrcamento)}
+            aprovacoes={aprovacoes}
+            onFechar={() => setMesOrcamentoDetalhado(null)}
+          />
+        ) : null
       })()}
+
+      {aprovadoresOrcamentoAberto && (
+        <AprovadoresOrcamentoModal
+          ano={anoOrcamento}
+          aprovacoes={aprovacoes}
+          onFechar={() => setAprovadoresOrcamentoAberto(false)}
+        />
+      )}
 
       <div className="grid-2" style={{ marginBottom: 24 }}>
         <div className="panel">

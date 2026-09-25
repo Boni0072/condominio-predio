@@ -31,7 +31,7 @@ Sistema PWA (Progressive Web App) em React para controle de portaria e mural de 
 
 **Despesas** (perfil Síndico)
 - Cadastro de despesas com materiais ou serviços: descrição, valor, categoria, tipo, data, fornecedor
-- 10 categorias: Manutenção, Limpeza, Segurança, Água, Energia, Gás, Jardinagem, Piscina, Elevador, Outros
+- 11 categorias: Manutenção, Limpeza, Segurança, Água, Energia, Gás, Jardinagem, Piscina, Elevador, Folha de Pagamento, Outros
 - Upload de **comprovante** em imagem (com compressão automática)
 - Filtros por texto, categoria e mês
 - Resumo com total de despesas filtradas
@@ -40,6 +40,24 @@ Sistema PWA (Progressive Web App) em React para controle de portaria e mural de 
 - Comunicados por categoria (geral, manutenção, urgente, evento)
 - Fixar avisos importantes no topo
 - Visualização somente-leitura para moradores
+
+**Visibilidade dos dados (privacidade por usuário)**
+- Pagamentos (boletos/cobranças), visitantes e encomendas são individuais: cada usuário vê apenas os **próprios** registros (os da sua unidade ou endereçados ao seu nome)
+- Visão total do condomínio é exclusiva dos **gestores: síndico, zelador e portaria** (o master, que administra a plataforma, também vê tudo)
+- Morador e conselheiro consultam somente os próprios boletos (`Meus Pagamentos` / `Minhas cobranças`) e só veem visitantes/encomendas da sua unidade — inclusive nos cartões do painel
+- Regra centralizada em `src/utils/permissoes.js` (`PERFIS_VISAO_TOTAL`, `registroPertenceAoUsuario`, `filtrarDoUsuario`), aplicada no Painel, na Portaria e em Pagamentos
+- **Sem agrupamento por mês para morador e conselheiro**: as listas desses perfis são simples (boleto a boleto / despesa a despesa). O agrupamento por mês (com recolher/expandir, "pagos × não pagos" e grupos de categoria) é exclusivo dos gestores
+- O filtro é aplicado na interface; as regras do Firestore (`src/firebase/regras.js`) continuam liberando leitura para os membros do condomínio (necessário para o app funcionar offline)
+
+## Pagamentos: mensalidade, boleto e PIX
+
+- O síndico cadastra a **chave PIX** e os **dados bancários do boleto** (banco, agência, conta, carteira/convênio) em **Pagamentos › Configurar Contas** — tudo no mesmo documento `tenants/{condominioId}/config_pix/principal`
+- As mensalidades são geradas em massa em **Configurações › Cobrança mensal** (`GerarCotas.jsx`), gravando em `tenants/{condominioId}/boletos`
+- Na aba **Meus Pagamentos**, o morador vê as mensalidades em aberto (`gerado`/`vencido`) e usa **Gerar boleto** para montar o boleto daquela cobrança (linha digitável de 47 dígitos, código de barras, copiar e baixar/imprimir)
+- O boleto é calculado **inteiramente no navegador** (`src/components/pagamentos/boletoUtils.js` + `BoletoGerado.jsx`): o morador **não** grava nada em `boletos` no Firestore — as regras de segurança continuam permitindo que só síndico/zelador/portaria escrevam. É um boleto de demonstração, sem registro em banco, identificado a partir da cobrança
+- Sem os dados bancários cadastrados, a tela avisa de forma amigável ("Boleto bancário ainda não configurado pelo síndico — pague por PIX") e o fluxo de **PIX Copia e Cola/QR Code** continua funcionando normalmente
+- A emissão manual (`EmissaoBoleto.jsx`) segue disponível em **Pagamentos › Emitir Boletos**, visível apenas para síndico/zelador/portaria, para cobranças avulsas (multa, serviço extra, evento), edição e baixa
+- Conferência manual dos números do boleto (44 dígitos do código de barras e 47 da linha digitável, inclusive valor quebrado e campos ausentes): `node scripts/verificar-boleto.mjs`
 
 ## Rodando localmente
 
@@ -121,6 +139,7 @@ src/
     mural/Mural.jsx               # comunicados
     despesas/Despesas.jsx         # controle de despesas + comprovantes
   utils/storage.js                # helpers de datas (formatadores)
+  utils/permissoes.js             # acessos por perfil + visibilidade dos dados (privacidade)
   utils/whatsapp.js               # helpers de telefone e links wa.me
   utils/imagem.js                 # captura e compressão de fotos da câmera
 public/

@@ -1,5 +1,5 @@
-// Utils para geração de código de barras e números de boleto
-// Implementação simplificada do padrão BOCU (Boleto União) / FEBRABAN
+// Utils compartilhados pelas telas de cobrança, consulta e PIX. O documento
+// oficial de uma cobrança é tenants/{condominioId}/boletos.
 
 export function gerarNossoNumero(sequencial) {
   // Gera um nosso número de 7 dígitos com dígito verificador. Quando não é
@@ -26,16 +26,6 @@ export function calcularDigitoVerificador(numero) {
   return 11 - resto
 }
 
-export function gerarCodigoBarras(campi, nossoNumero, valor) {
-  // Gera código de barras simplificado (não é um boleto real bancário)
-  // Esta é uma implementação para fins de demonstração/identificação
-  const valorFormatado = valor.toFixed(2).replace('.', '').padStart(10, '0')
-  const campos = `${campi}${nossoNumero.replace('-', '')}${valorFormatado}`
-  // Adiciona dv no final
-  const dv = calcularDigitoVerificador(campos)
-  return campos + dv
-}
-
 // Aceita number ou string ("120,50" vindo de input) sem estourar quando o
 // valor ainda não foi preenchido pelo usuário.
 export function formatarValorBoleto(valor) {
@@ -59,45 +49,149 @@ export function formatarDataVencimento(data) {
   })
 }
 
-export function gerarLinhaDigitavel(campi, banco, agencia, conta, nossoNumero, valor, dataVencimento) {
-  // Gera uma linha digitável fictícia para demonstração
-  // Formato: AAAAA.BBBBB.CCCCC.DDDDD.EEEEE.FFFFF.GGGGG.HHHH
-  const partes = [
-    '00000.00000', // Código do banco + cidade
-    '00000.00000', // Fator de vencimento + nosso número
-    '00000.00000', // Valor
-    '00000.00000', // Cnab / informações complementares
-    '00000.00000', // Conta + other fields
-    '00000.00000',
-    '00000.00000',
-    '0000.0000'   // DV
-  ]
+// ---------- Boleto: código de barras e linha digitável ----------
+// Os números abaixo seguem a ESTRUTURA de um boleto de cobrança (44 posições
+// no código de barras e 47 na linha digitável), mas são calculados dentro do
+// próprio app a partir da cobrança do condomínio — o condomínio não tem
+// convênio de registro bancário. Servem para identificar/conferir a cobrança e
+// imprimir um boleto de demonstração; o pagamento continua pelo PIX (ou na
+// administração). IMPORTANTE: o cálculo é 100% local e NÃO grava nada no
+// Firestore — o morador não tem (e não deve ter) permissão de escrita em
+// tenants/{condominioId}/boletos.
 
-  // Preenche com dados fictícios formatados
-  const fatorVencimento = Math.floor((new Date(dataVencimento) - new Date('2020-01-01')) / (1000 * 60 * 60 * 24))
-  const fatorStr = String(fatorVencimento).padStart(4, '0')
-  const nossoStr = nossoNumero.replace('-', '').padStart(7, '0')
+const DATA_BASE_FATOR_VENCIMENTO = Date.UTC(1997, 9, 7) // 07/10/1997 (FEBRABAN)
+const MS_POR_DIA = 24 * 60 * 60 * 1000
 
-  partes[1] = `${fatorStr}.${nossoStr}`
-
-  const valorInt = Math.round(valor * 100)
-  partes[2] = String(valorInt).padStart(10, '0').replace(/(\d{5})(\d{5})/, '$1.$2')
-
-  // Valor com string mais longa
-  return partes.join(' ')
+// "1.234,56", "R$ 1234,56" ou 1234.56 → 123456 (centavos). Nunca lança erro.
+function valorEmCentavos(valor) {
+  const numero = typeof valor === 'string'
+    ? Number(valor.replace(/R\$\s?/gi, '').replace(/\./g, '').replace(',', '.').trim())
+    : Number(valor)
+  if (!Number.isFinite(numero) || numero <= 0) return 0
+  return Math.round(numero * 100)
 }
 
-// Um boleto é "do usuário" quando foi emitido para o uid dele, para o id do
-// cadastro de morador vinculado, ou para o e-mail dele (morador que ainda não
-// tem conta no app — a emissão guarda moradorEmail justamente para este caso).
+// Somente dígitos, sempre com o tamanho pedido (zeros à esquerda). Valores
+// ausentes viram zeros — é o que evita o "undefined.replace(...)" que existia
+// em gerarLinhaDigitavel quando o boleto ainda não tinha nosso número.
+export function somenteDigitosBoleto(valor, tamanho) {
+  return String(valor ?? '')
+    .replace(/\D/g, '')
+    .slice(0, tamanho)
+    .padStart(tamanho, '0')
+}
+
+// Nosso número sem o dígito verificador da emissão ("0000123-4" → "0000123").
+export function normalizarNossoNumero(nossoNumero) {
+  return somenteDigitosBoleto(String(nossoNumero ?? '').split('-')[0], 7)
+}
+
+// Dados mínimos para montar o boleto: banco, agência e conta cadastrados pelo
+// síndico em Pagamentos › Configurar Contas.
+export function temDadosBancarios({ banco, agencia, conta } = {}) {
+  return [banco, agencia, conta].every((valor) => String(valor ?? '').replace(/\D/g, '').length > 0)
+}
+
+// Fator de vencimento: dias desde 07/10/1997 (padrão FEBRABAN). Data ausente ou
+// inválida vira 0 em vez de lançar erro.
+export function calcularFatorVencimento(dataVencimento) {
+  const iso = String(dataVencimento ?? '').slice(0, 10)
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(dataVencimento)
+  if (isNaN(data.getTime())) return 0
+  const dias = Math.floor((Date.UTC(data.getFullYear(), data.getMonth(), data.getDate()) - DATA_BASE_FATOR_VENCIMENTO) / MS_POR_DIA)
+  return dias > 0 ? dias % 10000 : 0
+}
+
+// DV geral do código de barras: módulo 11 com pesos 2..9 (da direita para a
+// esquerda) e a regra bancária de que 0, 10 e 11 viram 1.
+function digitoVerificadorBarras(numero) {
+  const digitos = String(numero ?? '').replace(/\D/g, '')
+  let soma = 0
+  let peso = 2
+  for (let i = digitos.length - 1; i >= 0; i--) {
+    soma += Number(digitos[i]) * peso
+    peso = peso === 9 ? 2 : peso + 1
+  }
+  const dv = 11 - (soma % 11)
+  return dv === 0 || dv > 9 ? 1 : dv
+}
+
+// DV dos campos 1, 2 e 3 da linha digitável: módulo 10 (pesos 2 e 1).
+export function digitoModulo10(numero) {
+  const digitos = String(numero ?? '').replace(/\D/g, '')
+  let soma = 0
+  let peso = 2
+  for (let i = digitos.length - 1; i >= 0; i--) {
+    const produto = Number(digitos[i]) * peso
+    soma += produto > 9 ? produto - 9 : produto
+    peso = peso === 2 ? 1 : 2
+  }
+  return (10 - (soma % 10)) % 10
+}
+
+// Campo livre (25 posições): carteira (3) + agência (4) + conta (11) +
+// nosso número (7).
+function montarCampoLivre({ carteira, agencia, conta, nossoNumero }) {
+  return somenteDigitosBoleto(carteira || 17, 3)
+    + somenteDigitosBoleto(agencia, 4)
+    + somenteDigitosBoleto(conta, 11)
+    + normalizarNossoNumero(nossoNumero)
+}
+
+// Código de barras (44 dígitos): banco (3) + moeda (1) + DV geral (1) + fator
+// de vencimento (4) + valor (10) + campo livre (25). Sem banco, agência ou
+// conta cadastrados devolve '' — a tela avisa que o boleto ainda não foi
+// configurado, em vez de exibir um número sem significado.
+export function gerarCodigoBarras({ banco, agencia, conta, carteira, nossoNumero, valor, dataVencimento } = {}) {
+  if (!temDadosBancarios({ banco, agencia, conta })) return ''
+  const semDv = `${somenteDigitosBoleto(banco, 3)}9${somenteDigitosBoleto(calcularFatorVencimento(dataVencimento), 4)}${somenteDigitosBoleto(valorEmCentavos(valor), 10)}${montarCampoLivre({ carteira, agencia, conta, nossoNumero })}`
+  return `${semDv.slice(0, 4)}${digitoVerificadorBarras(semDv)}${semDv.slice(4)}`
+}
+
+// Só os 47 dígitos da linha digitável, sem pontos/espaços (conferência/testes).
+export function linhaDigitavelSoDigitos(linhaDigitavel) {
+  return String(linhaDigitavel ?? '').replace(/\D/g, '')
+}
+
+// Formata os 47 dígitos como "AAAAA.AAAAA BBBBB.BBBBBB CCCCC.CCCCCC D …".
+export function formatarLinhaDigitavel(linhaDigitavel) {
+  const digitos = linhaDigitavelSoDigitos(linhaDigitavel)
+  if (digitos.length !== 47) return String(linhaDigitavel ?? '')
+  return [
+    `${digitos.slice(0, 5)}.${digitos.slice(5, 10)}`,
+    `${digitos.slice(10, 15)}.${digitos.slice(15, 21)}`,
+    `${digitos.slice(21, 26)}.${digitos.slice(26, 32)}`,
+    digitos.slice(32, 33),
+    digitos.slice(33)
+  ].join(' ')
+}
+
+// Linha digitável (47 dígitos) montada a partir do PRÓPRIO código de barras,
+// então os dois números sempre batem entre si. Aceita { codigoBarras } já
+// calculado para não repetir a conta.
+export function gerarLinhaDigitavel(opcoes = {}) {
+  const barras = String(opcoes?.codigoBarras ?? '').replace(/\D/g, '') || gerarCodigoBarras(opcoes)
+  if (barras.length !== 44) return ''
+  const campoLivre = barras.slice(19)
+  const campo1 = barras.slice(0, 4) + campoLivre.slice(0, 5)
+  const campo2 = campoLivre.slice(5, 15)
+  const campo3 = campoLivre.slice(15, 25)
+  const campo4 = barras.slice(4, 5)
+  const campo5 = barras.slice(5, 19)
+  return formatarLinhaDigitavel(
+    campo1 + digitoModulo10(campo1)
+    + campo2 + digitoModulo10(campo2)
+    + campo3 + digitoModulo10(campo3)
+    + campo4 + campo5
+  )
+}
+
+// Reexporta a comparação usada pela tela de cobrança para manter o módulo
+// Pagamentos livre de dependências da tela de Configurações.
+import { cobrancaPertenceAoUsuario } from './cobrancas.js'
+
 export function boletoPertenceAoUsuario(boleto, usuario) {
-  if (!boleto || !usuario) return false
-  const ids = [usuario.uid, usuario.id].filter(Boolean)
-  if (boleto.moradorUserId && ids.includes(boleto.moradorUserId)) return true
-  if (boleto.moradorId && ids.includes(boleto.moradorId)) return true
-  const email = String(usuario.email || '').trim().toLowerCase()
-  const emailBoleto = String(boleto.moradorEmail || '').trim().toLowerCase()
-  return Boolean(email) && email === emailBoleto
+  return cobrancaPertenceAoUsuario(boleto, usuario)
 }
 
 // ---------- PIX (padrão EMV / Banco Central) ----------
@@ -152,12 +246,15 @@ export function gerarPixCopiaECola({ chave, nome = 'Condominio', cidade = 'SAO P
   return payload + crc16PIX(payload)
 }
 
-// Boleto "gerado" cuja data de vencimento já passou é tratado como vencido na
-// exibição — evita depender de rotina no servidor para atualizar o status.
+// O status salvo usa o mesmo vocabulário de Pagamentos. O vencimento passado
+// é apenas um estado de apresentação e não modifica o documento.
 export function statusEfetivo(boleto) {
-  if (boleto?.status === 'gerado' && boleto.dataVencimento) {
+  if (['gerado', 'pendente', 'vencido', 'vencida'].includes(boleto?.status) && boleto.dataVencimento) {
     const vencimento = new Date(`${boleto.dataVencimento}T23:59:59`)
     if (!isNaN(vencimento.getTime()) && vencimento < new Date()) return 'vencido'
   }
+  if (boleto?.status === 'pendente') return 'gerado'
+  if (boleto?.status === 'paga') return 'pago'
+  if (boleto?.status === 'cancelada') return 'cancelado'
   return boleto?.status || 'gerado'
 }

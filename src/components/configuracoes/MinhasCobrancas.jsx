@@ -1,44 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { db } from '../../firebase/config.js'
-import { collection, onSnapshot } from 'firebase/firestore'
 import {
-  chaveCobrancas,
   cobrancaPertenceAoUsuario,
   statusEfetivoCobranca,
   ROTULO_STATUS_COBRANCA,
   CLASSE_BADGE_COBRANCA
 } from './cobrancaUtils.js'
 import { formatarValorBoleto } from '../pagamentos/boletoUtils.js'
-import { load, save } from '../../utils/storage.js'
+import { useCobrancas } from '../pagamentos/useCobrancas.js'
 
 // Visualização das COBRANÇAS do próprio usuário (morador e conselheiro).
-// Somente leitura: a baixa (marcar como paga) é feita pela administração
-// na seção "Cobrança mensal dos moradores".
+// É o mesmo listener de Pagamentos, por isso uma baixa feita pelo gestor
+// aparece imediatamente aqui e na consulta de pagamentos.
 export default function MinhasCobrancas() {
-  const { userProfile, firebaseOK } = useAuth()
-  const [cobrancas, setCobrancas] = useState([])
-
-  const condominioId = userProfile?.condominioId
-  const firestoreAtivo = Boolean(firebaseOK && condominioId)
-  const visivel = ['morador', 'conselheiro'].includes(userProfile?.role) && Boolean(condominioId)
-
-  useEffect(() => {
-    if (!visivel) return
-    if (!firestoreAtivo) {
-      setCobrancas(load(chaveCobrancas(condominioId)) || [])
-      return
-    }
-    const unsub = onSnapshot(collection(db, 'tenants', condominioId, 'cobrancas'), (snap) => {
-      const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      setCobrancas(lista)
-      save(chaveCobrancas(condominioId), lista)
-    }, (erro) => {
-      console.error('Erro ao sincronizar cobranças:', erro)
-      setCobrancas(load(chaveCobrancas(condominioId)) || [])
-    })
-    return () => unsub()
-  }, [visivel, firestoreAtivo, condominioId])
+  const { userProfile } = useAuth()
+  const visivel = ['morador', 'conselheiro'].includes(userProfile?.role) && Boolean(userProfile?.condominioId)
+  const { cobrancas, carregando, erroSincronizacao } = useCobrancas({ ativo: visivel })
 
   if (!visivel) return null
 
@@ -55,7 +32,10 @@ export default function MinhasCobrancas() {
         <h3>Minhas cobranças</h3>
       </div>
       <div className="card-body">
-        {minhas.length === 0 ? (
+        {erroSincronizacao && <div className="alert alert-error" style={{ marginBottom: 12 }}>{erroSincronizacao}</div>}
+        {carregando ? (
+          <div className="loading">Carregando cobranças...</div>
+        ) : minhas.length === 0 ? (
           <div className="empty">
             <p>Nenhuma cobrança registrada.</p>
             <span>As cotas condominiais geradas pela administração aparecem aqui.</span>
@@ -80,8 +60,8 @@ export default function MinhasCobrancas() {
                       <div className="boleto-dados">
                         <span>Valor: <strong>{formatarValorBoleto(c.valor)}</strong></span>
                         <span>Vencimento: <strong>{c.dataVencimento || '-'}</strong></span>
-                        {c.status === 'paga' && c.pagaEm && (
-                          <span>Pago em: <strong>{new Date(c.pagaEm).toLocaleDateString('pt-BR')}</strong></span>
+                        {c.status === 'pago' && c.pagoEm && (
+                          <span>Pago em: <strong>{new Date(c.pagoEm).toLocaleDateString('pt-BR')}</strong></span>
                         )}
                       </div>
                     </div>
