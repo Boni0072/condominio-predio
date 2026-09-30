@@ -58,6 +58,19 @@ service cloud.firestore {
       allow update, delete: if eMaster() || eSindicoDoCondominio(tenantId);
     }
 
+    // Credenciais privadas do condomínio — hoje: Access Token do Mercado Pago,
+    // usado pela Cloud Function para gerar o boleto REGISTRADO (código de barras
+    // e linha digitável oficiais).
+    //
+    // Ficam FORA de tenants/{tenantId}/... de propósito: o curinga
+    // {documento=**} daquele caminho libera a leitura para todos os moradores e
+    // as regras do Firestore são SOMADAS (uma regra específica não consegue
+    // revogar a permissão que o curinga já concedeu). Só o síndico e o master
+    // leem/escrevem aqui; a Cloud Function usa o Admin SDK (ignora as regras).
+    match /config_privada/{tenantId} {
+      allow read, write: if eMaster() || eSindicoDoCondominio(tenantId);
+    }
+
     // Tokens de push dos dispositivos — usuário lê/escreve apenas do próprio tenant
     match /tenants/{tenantId}/pushTokens/{uid} {
       allow read, create, update: if pertenceAoCondominio(tenantId);

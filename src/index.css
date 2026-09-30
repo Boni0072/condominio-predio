@@ -5878,6 +5878,26 @@ button.boleto-grupo-cabecalho.nao-pagos {
   color: var(--brick);
 }
 
+.boleto-alerta {
+  padding: 10px 12px;
+  border: 1px solid var(--brick);
+  border-left-width: 4px;
+  border-radius: var(--radius-s);
+  background: #fdf0ef;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.boleto-alerta ul {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+}
+
+.boleto-alerta-vencido {
+  border-color: #b7791f;
+  background: #fdf6e3;
+}
+
 .boleto-impressao {
   display: flex;
   flex-direction: column;
@@ -5923,21 +5943,18 @@ button.boleto-grupo-cabecalho.nao-pagos {
 .boleto-barras {
   display: flex;
   align-items: stretch;
-  gap: 1px;
-  height: 40px;
-  padding: 5px;
+  height: 52px;
+  padding: 6px 12px;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--radius-s);
   overflow: hidden;
 }
 
-.boleto-barras .barra-escura {
-  background: var(--ink);
-}
-
-.boleto-barras .barra-clara {
-  background: transparent;
+.boleto-barras-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .boleto-codigo-barras {
@@ -5945,6 +5962,33 @@ button.boleto-grupo-cabecalho.nao-pagos {
   font-size: 13px;
   letter-spacing: 0.08em;
   word-break: break-all;
+}
+
+/* Painel do Mercado Pago dentro do modal do boleto: registrar a cobrança do
+   síndico/zelador/portaria e conferir o pagamento do boleto registrado. Fica
+   fora da impressão (classe boleto-nao-imprimir) — o impresso é o documento. */
+.boleto-mercado-pago {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.boleto-mp-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.boleto-mp-dados {
+  display: grid;
+  gap: 4px;
+  font-size: 15.5px;
+  color: var(--ink-soft);
 }
 
 /* Botões menores no rodapé do boleto: cabem em 2 linhas no celular sem

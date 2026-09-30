@@ -12,6 +12,7 @@ import {
   temDadosBancarios
 } from './boletoUtils.js'
 import BoletoGerado from './BoletoGerado.jsx'
+import { boletoRegistrado, mercadoPagoAtivo } from './mercadoPago.js'
 import { getMonthKey, nowISO, load, save } from '../../utils/storage.js'
 import { COLECAO_BOLETOS, colecaoDoRegistro } from './cobrancas.js'
 import { useCobrancas } from './useCobrancas.js'
@@ -229,16 +230,31 @@ export default function ConsultarPagamentos() {
     convenio: pix?.convenio || ''
   }), [pix])
   const boletoBancarioConfigurado = temDadosBancarios(dadosBancarios)
+  // Boleto REGISTRADO no Mercado Pago: o síndico cadastrou as credenciais
+  // (Pagamentos › Configurar Contas) e o app pode registrar a cobrança no
+  // banco, gerando o código de barras oficial. A flag é pública (sem o token),
+  // vem no mesmo documento da chave PIX e o morador já a recebe pelo snapshot.
+  const mercadoPagoDisponivel = mercadoPagoAtivo(pix)
+  // Com qualquer das duas opções o boleto pode ser aberto; sem nenhuma, o modal
+  // explica o que o síndico precisa configurar.
+  const boletoDisponivel = boletoBancarioConfigurado || mercadoPagoDisponivel
 
   // Abre o boleto da cobrança selecionada. Se o síndico ainda não cadastrou os
   // dados bancários, avisa de forma amigável (e o modal explica o que fazer) —
   // o PIX desta cobrança continua funcionando normalmente.
   const gerarBoleto = (boleto) => {
-    if (!boletoBancarioConfigurado) {
-      setMensagem('Boleto bancário ainda não configurado pelo síndico — pague por PIX.')
+    if (!boletoDisponivel) {
+      setMensagem('Boleto ainda não configurado pelo síndico — pague por PIX.')
       setTipoMsg('info')
     }
     setBoletoGerado(boleto)
+  }
+
+  // O boleto registrado no Mercado Pago chega com os números oficiais; a
+  // cobrança também é atualizada no Firestore pela Cloud Function, mas o modal
+  // recebe o dado na hora para não depender do próximo snapshot.
+  const atualizarBoletoNaTela = (atualizado) => {
+    setBoletoGerado((atual) => (atual && atual.id === atualizado?.id ? { ...atual, ...atualizado } : atual))
   }
 
   // Fallback do modal do boleto: copia o PIX da cobrança e fecha o modal, para
@@ -297,6 +313,7 @@ export default function ConsultarPagamentos() {
             <strong>{b.moradorNome || 'Sem morador'}{b.moradorUnidade ? ` — ${b.moradorUnidade}` : ''}</strong>
             {getStatusBadge(status)}
             {getTipoBadge(b.tipo)}
+            {boletoRegistrado(b) && <span className='badge badge-blue'>{gerencia ? 'Mercado Pago' : 'Boleto disponível'}</span>}
           </div>
           <div className='boleto-dados'>
             <span>Descrição: <strong>{b.descricao || '-'}</strong></span>
@@ -313,10 +330,11 @@ export default function ConsultarPagamentos() {
               <button type='button' className='btn btn-brass btn-small' onClick={() => gerarPixDoBoleto(b)}>
                 PIX deste boleto
               </button>
-              {/* Boleto da mensalidade em um clique: usa os dados bancários
-                  configurados pelo síndico e a própria cobrança — só leitura. */}
+              {/* Boleto já registrado no Mercado Pago: o modal mostra os números
+                  oficiais para pagar. Sem registro, quem registra é a
+                  administração — o morador só acompanha por aqui. */}
               <button type='button' className='btn btn-ghost btn-small' onClick={() => gerarBoleto(b)}>
-                Gerar boleto
+                {boletoRegistrado(b) ? 'Ver / pagar boleto' : (gerencia ? 'Registrar boleto' : 'Ver boleto')}
               </button>
             </>
           ) : (
@@ -527,6 +545,14 @@ export default function ConsultarPagamentos() {
           onFechar={() => setBoletoGerado(null)}
           onCopiar={copiar}
           onPix={pagarComPixDoBoleto}
+          // Registrar o boleto no Mercado Pago é ação da ADMINISTRAÇÃO
+          // (síndico/zelador/portaria). O morador abre o boleto já registrado
+          // e paga: linha digitável, código de barras e link oficial.
+          podeRegistrar={gerencia}
+          mercadoPagoAtivo={mercadoPagoDisponivel}
+          onBoletoAtualizado={atualizarBoletoNaTela}
+          tenantId={condominioId}
+          condominio={condominio}
         />
       )}
     </div>

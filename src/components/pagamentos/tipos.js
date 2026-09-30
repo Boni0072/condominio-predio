@@ -32,13 +32,15 @@ export const PERFIS_VISAO_GERAL = [...PERFIS_GESTORES_PAGAMENTO]
 
 export const BANCO_OPCOES = [
   { codigo: '001', nome: 'Banco do Brasil' },
-  { codigo: '041', nome: 'Itaú' },
   { codigo: '033', nome: 'Santander' },
-  { codigo: '104', nome: 'Bradesco' },
-  { codigo: '237', nome: 'Caixa Econômica' },
-  { codigo: '341', nome: 'Banco Inter' },
-  { codigo: '745', nome: 'Banco Daycoval' },
-  { codigo: '085', nome: 'Nubank' },
-  { codigo: '003', nome: 'BS2' },
-  { codigo: '292', nome: 'BTG Pactual' }
+  { codigo: '104', nome: 'Caixa Econômica Federal' },
+  { codigo: '237', nome: 'Bradesco' },
+  { codigo: '341', nome: 'Itaú Unibanco' },
+  { codigo: '041', nome: 'Banrisul' },
+  { codigo: '077', nome: 'Banco Inter' },
+  { codigo: '260', nome: 'Nubank' },
+  { codigo: '336', nome: 'Banco C6' },
+  { codigo: '707', nome: 'Banco Daycoval' },
+  { codigo: '422', nome: 'Banco Safra' },
+  { codigo: '745', nome: 'Citibank' }
 ]

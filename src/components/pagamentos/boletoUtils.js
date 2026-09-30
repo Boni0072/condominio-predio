@@ -50,12 +50,17 @@ export function formatarDataVencimento(data) {
 }
 
 // ---------- Boleto: código de barras e linha digitável ----------
-// Os números abaixo seguem a ESTRUTURA de um boleto de cobrança (44 posições
-// no código de barras e 47 na linha digitável), mas são calculados dentro do
-// próprio app a partir da cobrança do condomínio — o condomínio não tem
-// convênio de registro bancário. Servem para identificar/conferir a cobrança e
-// imprimir um boleto de demonstração; o pagamento continua pelo PIX (ou na
-// administração). IMPORTANTE: o cálculo é 100% local e NÃO grava nada no
+// BOLETO DE DEMONSTRAÇÃO (sem registro em banco): os números abaixo seguem a
+// ESTRUTURA de um boleto de cobrança (44 posições no código de barras e 47 na
+// linha digitável), mas são calculados dentro do próprio app a partir da
+// cobrança do condomínio — o condomínio não tem convênio de registro bancário.
+// Servem para identificar/conferir a cobrança e imprimir um boleto de
+// demonstração; NÃO TENTE PAGAR com eles no banco/app do banco — o banco vai
+// recusar ("boleto inválido/inexistente"). O pagamento continua pelo PIX (ou
+// na administração). Para um boleto PAGÁVEL de verdade, o síndico precisa
+// clicar em "Registrar no Mercado Pago": aí o código de barras/linha passa a
+// vir do BANCO (campos codigoBarras/linhaDigitavel da cobrança).
+// IMPORTANTE: o cálculo é 100% local e NÃO grava nada no Firestore — o morador
 // Firestore — o morador não tem (e não deve ter) permissão de escrita em
 // tenants/{condominioId}/boletos.
 
@@ -100,6 +105,53 @@ export function calcularFatorVencimento(dataVencimento) {
   if (isNaN(data.getTime())) return 0
   const dias = Math.floor((Date.UTC(data.getFullYear(), data.getMonth(), data.getDate()) - DATA_BASE_FATOR_VENCIMENTO) / MS_POR_DIA)
   return dias > 0 ? dias % 10000 : 0
+}
+
+// Fator FEBRABAN → data de vencimento (Date UTC ou null quando não há data).
+// Regra: dias desde 07/10/1997, mas o campo tem só 4 dígitos — a cada 10000
+// dias (~27 anos) o ciclo reinicia. O fator 9999 estourou em 21/02/2025, então
+// hoje vale o SEGUNDO ciclo: 0000–9999 = 22/02/2025 a 09/07/2052. Por isso
+// 0595 = 10/10/2026 (e não 1999) quando a cobrança vence em 2026. Sem data de
+// referência, resolve-se pelo ciclo mais próximo de hoje; com dataVencimento
+// da cobrança, usa-se o ciclo mais próximo dela (fonte mais confiável).
+export function dataDoFatorVencimento(fator, referencia) {
+  const numero = Number(String(fator ?? '').replace(/\D/g, ''))
+  if (!Number.isFinite(numero) || numero <= 0 || numero >= 10000) return null
+  const CICLO = 10000 * MS_POR_DIA
+  let refMs = Date.now()
+  if (referencia) {
+    const iso = String(referencia).slice(0, 10)
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(referencia)
+    if (!isNaN(parsed.getTime())) refMs = Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
+  }
+  // Candidatos: ciclo original (1997–2025), ciclo atual (2025–2052) e próximo.
+  const base = DATA_BASE_FATOR_VENCIMENTO + numero * MS_POR_DIA
+  const candidatos = [base - CICLO, base, base + CICLO, base + 2 * CICLO].filter((ms) => ms >= DATA_BASE_FATOR_VENCIMENTO)
+  let melhor = candidatos[0]
+  for (const ms of candidatos) {
+    if (Math.abs(ms - refMs) < Math.abs(melhor - refMs)) melhor = ms
+  }
+  return new Date(melhor)
+}
+
+// Situação do vencimento embutido no código de barras/linha: { estado, data }.
+// estado: 'sem-vencimento' | 'vencido' | 'vence-hoje' | 'a-vencer'. Também
+// aceita a data ISO da cobrança (boleto.dataVencimento) como referência para
+// resolver o ciclo do fator — sem ela, usa-se hoje como referência.
+export function analisarVencimentoBoleto({ fator, dataVencimento } = {}) {
+  let data = dataDoFatorVencimento(fator, dataVencimento || undefined)
+  if (!data && dataVencimento) {
+    const iso = String(dataVencimento).slice(0, 10)
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(dataVencimento)
+    if (!isNaN(parsed.getTime())) data = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()))
+  }
+  if (!data) return { estado: 'sem-vencimento', data: null }
+  const hoje = new Date()
+  const inicioHoje = Date.UTC(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+  const diaVenc = Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate())
+  if (diaVenc < inicioHoje) return { estado: 'vencido', data }
+  if (diaVenc === inicioHoje) return { estado: 'vence-hoje', data }
+  return { estado: 'a-vencer', data }
 }
 
 // DV geral do código de barras: módulo 11 com pesos 2..9 (da direita para a
@@ -148,6 +200,65 @@ export function gerarCodigoBarras({ banco, agencia, conta, carteira, nossoNumero
   return `${semDv.slice(0, 4)}${digitoVerificadorBarras(semDv)}${semDv.slice(4)}`
 }
 
+// Validação completa de um código de barras de boleto cobrança (44 dígitos).
+// Devolve { ok, erros[] } para a tela explicar ANTES de imprimir/tentar pagar
+// — evita o "COD.BARRAS INVALIDO" só na hora do banco.
+export function validarCodigoBarras(codigo) {
+  const digitos = String(codigo ?? '').replace(/\D/g, '')
+  const erros = []
+  if (!digitos) return { ok: false, digitos: '', erros: ['Código de barras vazio.'] }
+  if (!/^\d+$/.test(digitos)) erros.push('Código de barras deve conter só números.')
+  if (digitos.length !== 44) erros.push(`Código de barras deve ter 44 dígitos (encontrados ${digitos.length}).`)
+  if (digitos.length === 44) {
+    const banco = digitos.slice(0, 3)
+    const moeda = digitos[3]
+    const dv = Number(digitos[4])
+    const fator = digitos.slice(5, 9)
+    const valor = digitos.slice(9, 19)
+    // Códigos de compensação (COMPE) válidos no Brasil. "123" do aviso não
+    // existe — nenhum banco responde por ele, então o caixa recusa na hora.
+    const BANCOS_VALIDOS = new Set(['001', '033', '104', '237', '341', '041', '077', '260', '336', '707', '422', '745', '021', '025', '036', '037', '085', '211', '212', '218', '222', '224', '318', '323', '330', '340', '356', '366', '370', '376', '389', '453', '454', '477', '479', '487', '488', '494', '623', '626', '633', '634', '637', '638', '641', '643', '652', '653', '654', '655'])
+    if (!BANCOS_VALIDOS.has(banco)) erros.push(`Banco "${banco}" inválido ou inexistente na compensação (COMPE).`)
+    if (moeda !== '9') erros.push(`Moeda deve ser 9 (Real); encontrado "${moeda}".`)
+    const semDv = digitos.slice(0, 4) + digitos.slice(5)
+    if (digitoVerificadorBarras(semDv) !== dv) erros.push(`Dígito verificador geral inválido (posição 5: esperado ${digitoVerificadorBarras(semDv)}, encontrado ${dv}).`)
+    if (fator === '0000') erros.push('Fator de vencimento zerado — boleto sem vencimento válido.')
+    if (valor === '0000000000') erros.push('Valor zerado — boleto sem valor.')
+  }
+  return { ok: erros.length === 0, digitos, erros }
+}
+
+// Valida a linha digitável (47 dígitos, com ou sem pontos/espaços): tamanho,
+// DVs módulo 10 dos 3 campos e coerência com o código de barras que a gerou.
+export function validarLinhaDigitavel(linha, codigoBarras) {
+  const digitos = String(linha ?? '').replace(/\D/g, '')
+  const erros = []
+  if (!digitos) return { ok: false, digitos: '', erros: ['Linha digitável vazia.'] }
+  if (digitos.length !== 47) {
+    return { ok: false, digitos, erros: [`Linha digitável deve ter 47 dígitos (encontrados ${digitos.length}).`] }
+  }
+  const campoLivre = String(codigoBarras ?? '').replace(/\D/g, '').slice(19)
+  const blocos = [
+    { rotulo: '1º campo', base: digitos.slice(0, 9), dv: Number(digitos[9]) },
+    { rotulo: '2º campo', base: digitos.slice(10, 20), dv: Number(digitos[20]) },
+    { rotulo: '3º campo', base: digitos.slice(21, 31), dv: Number(digitos[31]) },
+  ]
+  blocos.forEach(({ rotulo, base, dv }) => {
+    if (digitoModulo10(base) !== dv) {
+      erros.push(`Dígito do ${rotulo} da linha digitável inválido (esperado ${digitoModulo10(base)}, encontrado ${dv}).`)
+    }
+  })
+  const barras = String(codigoBarras ?? '').replace(/\D/g, '')
+  if (barras.length === 44) {
+    const base1 = `${barras.slice(0, 3)}${barras[3]}${campoLivre.slice(0, 5)}`
+    const base2 = campoLivre.slice(5, 15)
+    const base3 = campoLivre.slice(15)
+    const esperado = `${base1}${digitoModulo10(base1)}${base2}${digitoModulo10(base2)}${base3}${digitoModulo10(base3)}${barras[4]}${barras.slice(5, 19)}`
+    if (digitos !== esperado && erros.length === 0) erros.push('Linha digitável não confere com o código de barras.')
+  }
+  return { ok: erros.length === 0, digitos, erros }
+}
+
 // Só os 47 dígitos da linha digitável, sem pontos/espaços (conferência/testes).
 export function linhaDigitavelSoDigitos(linhaDigitavel) {
   return String(linhaDigitavel ?? '').replace(/\D/g, '')
@@ -184,6 +295,59 @@ export function gerarLinhaDigitavel(opcoes = {}) {
     + campo3 + digitoModulo10(campo3)
     + campo4 + campo5
   )
+}
+
+// Padrão 2 de 5 Intercalado (Interleaved 2 of 5 / I25) usado nos boletos
+// bancários brasileiros (Febraban). Cada dígito (0 a 9) é codificado por 5
+// elementos (sendo 2 largos '1' e 3 estreitos '0').
+const PADRAO_I25 = [
+  '00110', // 0
+  '10001', // 1
+  '01001', // 2
+  '11000', // 3
+  '00101', // 4
+  '10100', // 5
+  '01100', // 6
+  '00011', // 7
+  '10010', // 8
+  '01010'  // 9
+]
+const START_I25 = '0000' // barra estreita, espaço estreito, barra estreita, espaço estreito
+const STOP_I25 = '100'   // barra larga, espaço estreito, barra estreita
+
+/**
+ * Converte um código numérico de comprimento par (como o código de barras de 44
+ * dígitos de boletos) na lista de retângulos escuros para renderização em SVG.
+ * @param {string} codigo - Os dígitos do código de barras
+ * @returns {{ barras: Array<{ x: number, largura: number }>, totalLargura: number }}
+ */
+export function gerarBarrasI25(codigo) {
+  const digitos = String(codigo || '').replace(/\D/g, '')
+  if (!digitos || digitos.length % 2 !== 0) {
+    return { barras: [], totalLargura: 0 }
+  }
+
+  let padrao = START_I25
+  for (let i = 0; i < digitos.length; i += 2) {
+    const d1 = PADRAO_I25[Number(digitos[i])]
+    const d2 = PADRAO_I25[Number(digitos[i + 1])]
+    for (let j = 0; j < 5; j++) {
+      padrao += d1[j] + d2[j]
+    }
+  }
+  padrao += STOP_I25
+
+  const barras = []
+  let x = 0
+  for (let i = 0; i < padrao.length; i++) {
+    const largura = padrao[i] === '1' ? 3 : 1
+    const ehBarra = i % 2 === 0
+    if (ehBarra) {
+      barras.push({ x, largura })
+    }
+    x += largura
+  }
+  return { barras, totalLargura: x }
 }
 
 // Reexporta a comparação usada pela tela de cobrança para manter o módulo

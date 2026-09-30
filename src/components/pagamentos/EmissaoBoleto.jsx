@@ -1,13 +1,29 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../context/AppContext.jsx'
 import { db } from '../../firebase/config.js'
-import { collection, addDoc, updateDoc, doc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc, onSnapshot } from 'firebase/firestore'
 import { TIPOS_PAGAMENTO, STATUS_BOLETO, PERFIS_GESTORES_PAGAMENTO } from './tipos.js'
-import { formatarValorBoleto, formatarDataVencimento, gerarNossoNumero, statusEfetivo } from './boletoUtils.js'
-import { uid, nowISO } from '../../utils/storage.js'
+import {
+  formatarValorBoleto,
+  formatarDataVencimento,
+  formatarLinhaDigitavel,
+  gerarNossoNumero,
+  statusEfetivo
+} from './boletoUtils.js'
+import { uid, nowISO, load, save } from '../../utils/storage.js'
 import { construirDestinatariosCobranca, COLECAO_BOLETOS, colecaoDoRegistro } from './cobrancas.js'
 import { useCobrancas } from './useCobrancas.js'
+import BoletoGerado from './BoletoGerado.jsx'
+import {
+  boletoRegistrado,
+  buscarEnderecoPorCep,
+  gerarBoletoRegistrado,
+  mercadoPagoAtivo,
+  mensagemErroMercadoPago
+} from './mercadoPago.js'
+
+const chavePix = (condominioId) => `${condominioId}_config_pix`
 
 function formVazio() {
   return {
@@ -24,12 +40,27 @@ function formVazio() {
     dataVencimento: new Date().toISOString().split('T')[0],
     status: 'gerado',
     observacoes: '',
-    nossoNumero: ''
+    nossoNumero: '',
+    // Pagador do boleto REGISTRADO no Mercado Pago: sem nome completo, CPF/CNPJ
+    // válido e e-mail o banco não registra a cobrança.
+    pagadorNome: '',
+    pagadorDocumento: '',
+    pagadorEmail: '',
+    pagadorCep: '',
+    // Endereço do pagador: obrigatório para o Mercado Pago registrar o boleto
+    // (exigência do BACEN desde 30/09/2024 — rua, número, bairro, CEP, cidade
+    // e UF). Sem ele a API recusa a emissão e não existe código real.
+    pagadorLogradouro: '',
+    pagadorNumero: '',
+    pagadorBairro: '',
+    pagadorCidade: '',
+    pagadorUf: '',
+    registrarMercadoPago: false
   }
 }
 
 export default function EmissaoBoleto() {
-  const { userProfile } = useAuth()
+  const { userProfile, firebaseOK, condominio } = useAuth()
   const { moradores, usuarios } = useApp()
   const [salvando, setSalvando] = useState(false)
   const [mensagem, setMensagem] = useState('')
@@ -39,6 +70,8 @@ export default function EmissaoBoleto() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [mostrarForm, setMostrarForm] = useState(false)
   const [form, setForm] = useState(formVazio)
+  const [registrandoMP, setRegistrandoMP] = useState(false)
+  const [buscandoCep, setBuscandoCep] = useState(false)
 
   const condominioId = userProfile?.condominioId || 'local'
   const podeEditar = PERFIS_GESTORES_PAGAMENTO.includes(userProfile?.role)
@@ -47,6 +80,81 @@ export default function EmissaoBoleto() {
     () => [...cobrancas].sort((a, b) => new Date(b.dataVencimento || 0) - new Date(a.dataVencimento || 0)),
     [cobrancas]
   )
+
+  // Configuração de pagamentos do condomínio (chave PIX, dados bancários e a
+  // flag pública do Mercado Pago). É o MESMO documento que o morador lê — aqui
+  // o gestor usa para saber se pode registrar o boleto no Mercado Pago e para
+  // abrir o modal do boleto com os dados bancários.
+  const [pix, setPix] = useState(() => load(chavePix(condominioId)))
+  const [boletoGerado, setBoletoGerado] = useState(null)
+
+  useEffect(() => {
+    const local = load(chavePix(condominioId))
+    if (local) setPix(local)
+    if (!firebaseOK || !userProfile?.condominioId) return undefined
+    const unsub = onSnapshot(doc(db, 'tenants', condominioId, 'config_pix', 'principal'), (snap) => {
+      if (!snap.exists()) return
+      const dados = { id: snap.id, ...snap.data() }
+      setPix(dados)
+      save(chavePix(condominioId), dados)
+    }, (erro) => {
+      console.warn('Não foi possível sincronizar a configuração de pagamentos:', erro)
+    })
+    return () => unsub()
+  }, [firebaseOK, condominioId, userProfile?.condominioId])
+
+  // Boleto registrado no Mercado Pago disponível para o condomínio?
+  const mpAtivo = mercadoPagoAtivo(pix)
+  const dadosBancarios = useMemo(() => ({
+    banco: pix?.banco || '',
+    agencia: pix?.agencia || '',
+    conta: pix?.conta || '',
+    carteira: pix?.carteira || '',
+    convenio: pix?.convenio || ''
+  }), [pix])
+
+  // Registra a cobrança no Mercado Pago (Cloud Function) e devolve o aviso que
+  // a tela mostra junto da mensagem de sucesso. O código de barras de 44
+  // dígitos e a linha digitável de 47 vêm do banco e ficam gravados na cobrança.
+  const registrarNoMercadoPago = async (cobranca) => {
+    setRegistrandoMP(true)
+    try {
+      const dados = await gerarBoletoRegistrado({
+        boletoId: cobranca.id,
+        colecao: COLECAO_BOLETOS,
+        valor: cobranca.valor,
+        descricao: cobranca.descricao || 'Cobrança do condomínio',
+        dataVencimento: cobranca.dataVencimento,
+        pagador: {
+          nome: cobranca.pagadorNome,
+          documento: cobranca.pagadorDocumento,
+          email: cobranca.pagadorEmail,
+          cep: cobranca.pagadorCep,
+          logradouro: cobranca.pagadorLogradouro,
+          numero: cobranca.pagadorNumero,
+          bairro: cobranca.pagadorBairro,
+          cidade: cobranca.pagadorCidade,
+          uf: cobranca.pagadorUf
+        },
+        tenantId: condominioId
+      })
+      const ajuste = dados.vencimento?.ajustada
+        ? ` Vencimento ajustado para ${formatarDataVencimento(dados.vencimento.data)} (o Mercado Pago aceita até 30 dias).`
+        : ''
+      return ` Boleto registrado no Mercado Pago!${ajuste}`
+    } catch (erro) {
+      console.error('Boleto salvo, mas não registrado no Mercado Pago:', erro)
+      return ` O boleto foi salvo, mas o registro no Mercado Pago falhou: ${mensagemErroMercadoPago(erro)}`
+    } finally {
+      setRegistrandoMP(false)
+    }
+  }
+
+  // O modal recebe a cobrança atualizada (números oficiais) sem depender do
+  // próximo snapshot do Firestore.
+  const atualizarBoletoNaTela = (atualizado) => {
+    setBoletoGerado((atual) => (atual && atual.id === atualizado?.id ? { ...atual, ...atualizado } : atual))
+  }
 
   // O mesmo helper da cobrança mensal vinculha cadastro e conta por e-mail ou
   // unidade, evitando duas cobranças para a mesma unidade.
@@ -70,8 +178,37 @@ export default function EmissaoBoleto() {
       moradorUserId: opcao?.moradorUserId || '',
       moradorNome: opcao?.nome || '',
       moradorUnidade: opcao?.unidade || '',
-      moradorEmail: opcao?.email || ''
+      moradorEmail: opcao?.email || '',
+      // Já adianta o nome e o e-mail do pagador do boleto registrado: falta só
+      // o CPF/CNPJ, que o app não guarda no cadastro do morador.
+      pagadorNome: prev.pagadorNome || opcao?.nome || '',
+      pagadorEmail: prev.pagadorEmail || opcao?.email || ''
     }))
+  }
+
+  // CEP → ViaCEP: completa rua/bairro/cidade/UF do pagador. É só um atalho —
+  // quando a consulta falha, o gestor digita o endereço à mão (o Mercado Pago
+  // exige os campos, mas não valida contra o ViaCEP).
+  const completarEnderecoPeloCep = async () => {
+    setBuscandoCep(true)
+    try {
+      const endereco = await buscarEnderecoPorCep(form.pagadorCep)
+      setForm((prev) => ({
+        ...prev,
+        pagadorCep: endereco.cep,
+        pagadorLogradouro: endereco.logradouro || prev.pagadorLogradouro,
+        pagadorBairro: endereco.bairro || prev.pagadorBairro,
+        pagadorCidade: endereco.cidade || prev.pagadorCidade,
+        pagadorUf: endereco.uf || prev.pagadorUf
+      }))
+      setMensagem('Endereço do pagador preenchido pelo CEP — confira o número.')
+      setTipoMsg('info')
+    } catch (erro) {
+      setMensagem(erro?.message || 'Não foi possível consultar o CEP agora.')
+      setTipoMsg('error')
+    } finally {
+      setBuscandoCep(false)
+    }
   }
 
   const limparForm = () => {
@@ -96,7 +233,18 @@ export default function EmissaoBoleto() {
       dataVencimento: boleto.dataVencimento || formVazio().dataVencimento,
       status: boleto.status || 'gerado',
       observacoes: boleto.observacoes || '',
-      nossoNumero: boleto.nossoNumero || ''
+      nossoNumero: boleto.nossoNumero || '',
+      pagadorNome: boleto.pagadorNome || boleto.moradorNome || '',
+      pagadorDocumento: boleto.pagadorDocumento || '',
+      pagadorEmail: boleto.pagadorEmail || boleto.moradorEmail || '',
+      pagadorCep: boleto.pagadorCep || '',
+      pagadorLogradouro: boleto.pagadorLogradouro || '',
+      pagadorNumero: boleto.pagadorNumero || '',
+      pagadorBairro: boleto.pagadorBairro || '',
+      pagadorCidade: boleto.pagadorCidade || '',
+      pagadorUf: boleto.pagadorUf || '',
+      // Reabrir a edição de um boleto já registrado não o registra de novo.
+      registrarMercadoPago: false
     })
     setMostrarForm(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -138,21 +286,40 @@ export default function EmissaoBoleto() {
       status: form.status,
       observacoes: form.observacoes.trim(),
       nossoNumero: form.nossoNumero || gerarNossoNumero(),
-      emitidoPor: userProfile?.nome || userProfile?.email || 'sistema'
+      emitidoPor: userProfile?.nome || userProfile?.email || 'sistema',
+      // Pagador usado no boleto registrado do Mercado Pago (fica gravado para
+      // não precisar digitar de novo quando a cobrança for registrada depois).
+      pagadorNome: form.pagadorNome.trim() || form.moradorNome,
+      pagadorDocumento: form.pagadorDocumento.replace(/\D/g, ''),
+      pagadorEmail: (form.pagadorEmail || form.moradorEmail).trim(),
+      pagadorCep: form.pagadorCep.replace(/\D/g, ''),
+      pagadorLogradouro: form.pagadorLogradouro.trim(),
+      pagadorNumero: form.pagadorNumero.trim(),
+      pagadorBairro: form.pagadorBairro.trim(),
+      pagadorCidade: form.pagadorCidade.trim(),
+      pagadorUf: form.pagadorUf.trim().toUpperCase()
     }
     setSalvando(true)
     const boletoAtual = cobrancas.find((b) => b.id === form.id)
     if (firestoreAtivo) {
       try {
+        let idSalvo = form.id
         if (form.id) {
           await updateDoc(doc(db, 'tenants', condominioId, colecaoDoRegistro(boletoAtual || { id: form.id }), form.id), { ...dados, atualizadoEm: nowISO() })
         } else {
-          await addDoc(collection(db, 'tenants', condominioId, COLECAO_BOLETOS), {
+          const referencia = await addDoc(collection(db, 'tenants', condominioId, COLECAO_BOLETOS), {
             ...dados, criadoEm: nowISO(), atualizadoEm: nowISO(), condominioId, removido: false
           })
+          idSalvo = referencia.id
         }
-        setMensagem(form.id ? 'Boleto atualizado!' : 'Boleto emitido!')
-        setTipoMsg('success')
+        // Com o Mercado Pago ativo, a cobrança pode ser registrada no banco na
+        // mesma ação (o código de barras oficial é gerado pela Cloud Function).
+        const jaRegistrado = boletoRegistrado(boletoAtual)
+        const avisoMP = form.registrarMercadoPago && mpAtivo && idSalvo && !jaRegistrado
+          ? await registrarNoMercadoPago({ id: idSalvo, ...dados })
+          : ''
+        setMensagem(`${form.id ? 'Boleto atualizado!' : 'Boleto emitido!'}${avisoMP}`)
+        setTipoMsg(avisoMP.includes('falhou') ? 'info' : 'success')
       } catch (erro) {
         console.error('Erro ao salvar boleto:', erro)
         setMensagem('Não foi possível salvar a cobrança. Verifique a conexão e tente novamente.')
@@ -167,7 +334,12 @@ export default function EmissaoBoleto() {
     atualizarLocal((atuais) => form.id
       ? atuais.map((b) => (b.id === form.id ? { ...b, ...dados, atualizadoEm: nowISO() } : b))
       : [...atuais, { ...dados, id: uid(), criadoEm: nowISO(), atualizadoEm: nowISO(), removido: false }])
-    setMensagem(form.id ? 'Boleto atualizado neste dispositivo.' : 'Boleto emitido neste dispositivo.')
+    setMensagem(
+      `${form.id ? 'Boleto atualizado neste dispositivo.' : 'Boleto emitido neste dispositivo.'}`
+      + (form.registrarMercadoPago && mpAtivo
+        ? ' O registro no Mercado Pago precisa de conexão com o banco de dados — conecte-se e use "Registrar no Mercado Pago" no boleto.'
+        : '')
+    )
     setTipoMsg('info')
     setSalvando(false)
     limparForm()
@@ -333,9 +505,156 @@ export default function EmissaoBoleto() {
                 onChange={(e) => setForm((prev) => ({ ...prev, observacoes: e.target.value }))}
                 placeholder='Informações extras para o morador' />
             </div>
+            {/* Boleto REGISTRADO no Mercado Pago: só aparece quando o síndico já
+                cadastrou o Access Token em Configurar Contas. O código de barras
+                oficial é gerado ao salvar (Cloud Function), nunca no navegador. */}
+            {mpAtivo && (
+              <div className='boleto-mercado-pago'>
+                <div className='boleto-mp-cabecalho'>
+                  <strong>Boleto registrado (Mercado Pago)</strong>
+                  <span className='badge badge-green'>Disponível</span>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type='checkbox'
+                    checked={form.registrarMercadoPago}
+                    onChange={(e) => setForm((prev) => ({ ...prev, registrarMercadoPago: e.target.checked }))}
+                  />
+                  <span>Registrar esta cobrança no Mercado Pago e gerar o código de barras do banco</span>
+                </label>
+                <span className='form-hint'>
+                  O Mercado Pago exige nome completo, CPF/CNPJ, e-mail e o endereço completo do
+                  pagador (rua, número, bairro, CEP, cidade e UF). O código de barras (44
+                  dígitos) e a linha digitável (47) passam a ser os oficiais, com vencimento de até 30 dias.
+                  Sem esta opção o boleto continua sendo o de demonstração (cálculo local).
+                </span>
+                {form.registrarMercadoPago && (
+                  <div className='form-grid'>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-nome'>Nome completo do pagador *</label>
+                      <input
+                        type='text'
+                        id='pagador-nome'
+                        value={form.pagadorNome}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorNome: e.target.value }))}
+                        placeholder='Ex.: Maria Aparecida Souza'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-doc'>CPF ou CNPJ *</label>
+                      <input
+                        type='text'
+                        id='pagador-doc'
+                        value={form.pagadorDocumento}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorDocumento: e.target.value }))}
+                        inputMode='numeric'
+                        placeholder='000.000.000-00'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-email'>E-mail do pagador *</label>
+                      <input
+                        type='email'
+                        id='pagador-email'
+                        value={form.pagadorEmail}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorEmail: e.target.value }))}
+                        placeholder='morador@email.com'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-cep'>CEP *</label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          type='text'
+                          id='pagador-cep'
+                          value={form.pagadorCep}
+                          onChange={(e) => setForm((prev) => ({ ...prev, pagadorCep: e.target.value }))}
+                          onBlur={() => {
+                            const digitos = String(form.pagadorCep || '').replace(/\D/g, '')
+                            if (digitos.length === 8) completarEnderecoPeloCep()
+                          }}
+                          inputMode='numeric'
+                          placeholder='00000-000'
+                          className='input'
+                        />
+                        <button
+                          type='button'
+                          className='btn btn-ghost btn-small'
+                          onClick={completarEnderecoPeloCep}
+                          disabled={buscandoCep}
+                        >
+                          {buscandoCep ? 'Buscando...' : 'Buscar CEP'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-rua'>Rua (logradouro) *</label>
+                      <input
+                        type='text'
+                        id='pagador-rua'
+                        value={form.pagadorLogradouro}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorLogradouro: e.target.value }))}
+                        placeholder='Ex.: Rua das Acácias'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-numero'>Número</label>
+                      <input
+                        type='text'
+                        id='pagador-numero'
+                        value={form.pagadorNumero}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorNumero: e.target.value }))}
+                        placeholder='Ex.: 120 (em branco vira S/N)'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-bairro'>Bairro *</label>
+                      <input
+                        type='text'
+                        id='pagador-bairro'
+                        value={form.pagadorBairro}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorBairro: e.target.value }))}
+                        placeholder='Ex.: Centro'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-cidade'>Cidade *</label>
+                      <input
+                        type='text'
+                        id='pagador-cidade'
+                        value={form.pagadorCidade}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorCidade: e.target.value }))}
+                        placeholder='Ex.: São Paulo'
+                        className='input'
+                      />
+                    </div>
+                    <div className='form-group'>
+                      <label htmlFor='pagador-uf'>UF *</label>
+                      <input
+                        type='text'
+                        id='pagador-uf'
+                        value={form.pagadorUf}
+                        onChange={(e) => setForm((prev) => ({ ...prev, pagadorUf: e.target.value.toUpperCase() }))}
+                        maxLength={2}
+                        placeholder='SP'
+                        className='input'
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className='form-actions'>
-              <button type='submit' className='btn btn-brass' disabled={salvando}>
-                {salvando ? 'Salvando...' : form.id ? 'Atualizar Boleto' : 'Emitir Boleto'}
+              <button type='submit' className='btn btn-brass' disabled={salvando || registrandoMP}>
+                {salvando || registrandoMP
+                  ? (registrandoMP ? 'Registrando no Mercado Pago...' : 'Salvando...')
+                  : form.id ? 'Atualizar Boleto' : 'Emitir Boleto'}
               </button>
               {form.id && (
                 <button type='button' className='btn btn-ghost' onClick={limparForm}>
@@ -383,17 +702,26 @@ export default function EmissaoBoleto() {
                         <strong>{b.moradorNome || 'Sem morador'}{b.moradorUnidade ? ` — ${b.moradorUnidade}` : ''}</strong>
                         {getStatusBadge(status)}
                         {getTipoBadge(b.tipo)}
+                        {boletoRegistrado(b) && <span className='badge badge-blue'>Mercado Pago</span>}
                       </div>
                       <div className='boleto-dados'>
                         <span>Descrição: <strong>{b.descricao || '-'}</strong></span>
                         <span>Valor: <strong>{formatarValorBoleto(b.valor)}</strong></span>
                         <span>Vencimento: <strong>{formatarDataVencimento(b.dataVencimento)}</strong></span>
                         {b.nossoNumero && <span>Nosso nº: <strong>{b.nossoNumero}</strong></span>}
+                        {boletoRegistrado(b) && (
+                          <span>
+                            Linha digitável: <strong>{formatarLinhaDigitavel(b.linhaDigitavel)}</strong>
+                          </span>
+                        )}
                       </div>
                       {b.observacoes && <p className='boleto-obs'>{b.observacoes}</p>}
                     </div>
                     {podeEditar && (
                       <div className='boleto-actions'>
+                        <button type='button' className='btn btn-ghost btn-small' onClick={() => setBoletoGerado(b)}>
+                          {boletoRegistrado(b) ? 'Ver boleto' : 'Boleto'}
+                        </button>
                         <button type='button' className='btn btn-ghost btn-small' onClick={() => editarBoleto(b)}>Editar</button>
                         {['gerado', 'vencido'].includes(status) && (
                           <button type='button' className='btn btn-ghost btn-small' onClick={() => atualizarStatus(b.id, 'pago')}>
@@ -422,6 +750,24 @@ export default function EmissaoBoleto() {
           )}
         </div>
       </div>
+
+      {/* Boleto da cobrança (demonstração ou REGISTRADO no Mercado Pago). Pelo
+          modal o gestor registra a cobrança no Mercado Pago — com CPF/CNPJ e
+          e-mail do pagador — e confere o pagamento. */}
+      {boletoGerado && (
+        <BoletoGerado
+          boleto={boletoGerado}
+          dadosBancarios={dadosBancarios}
+          beneficiario={pix?.nomeRecebedor || 'Condomínio'}
+          onFechar={() => setBoletoGerado(null)}
+          podeRegistrar={podeEditar}
+          mercadoPagoAtivo={mpAtivo}
+          onBoletoAtualizado={atualizarBoletoNaTela}
+          tenantId={condominioId}
+          // Endereço do condomínio entra como sugestão do endereço do pagador.
+          condominio={condominio}
+        />
+      )}
     </div>
   )
 }

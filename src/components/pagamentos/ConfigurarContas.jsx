@@ -4,6 +4,15 @@ import { db } from '../../firebase/config.js'
 import { doc, setDoc, onSnapshot } from 'firebase/firestore'
 import { BANCO_OPCOES, PERFIS_GESTORES_PAGAMENTO } from './tipos.js'
 import { temDadosBancarios } from './boletoUtils.js'
+import {
+  PERFIS_CREDENCIAIS_MERCADO_PAGO,
+  ROTULO_CREDENCIAL,
+  carregarCredenciaisMercadoPago,
+  construirUrlWebhookMercadoPago,
+  modoCredencialMercadoPago,
+  removerCredenciaisMercadoPago,
+  salvarCredenciaisMercadoPago
+} from './mercadoPago.js'
 import { nowISO, load, save } from '../../utils/storage.js'
 
 const chavePix = (condominioId) => `${condominioId}_config_pix`
@@ -29,9 +38,23 @@ export default function ConfigurarContas() {
   const [carteira, setCarteira] = useState('')
   const [convenio, setConvenio] = useState('')
   const [secaoBoletoAberta, setSecaoBoletoAberta] = useState(false)
+  // Boleto REGISTRADO no Mercado Pago: o Access Token (segredo) fica no
+  // documento privado config_privada/{condomínio} — só o síndico lê — e a flag
+  // pública `mercadoPagoAtivo` vai no mesmo documento da chave PIX, para o
+  // morador saber que o condomínio emite boleto registrado.
+  const [mercadoPagoAtivo, setMercadoPagoAtivo] = useState(false)
+  const [accessTokenMP, setAccessTokenMP] = useState('')
+  const [publicKeyMP, setPublicKeyMP] = useState('')
+  const [credenciaisMPCarregadas, setCredenciaisMPCarregadas] = useState(false)
+  const [mostrarTokenMP, setMostrarTokenMP] = useState(false)
+  const [secaoMercadoPagoAberta, setSecaoMercadoPagoAberta] = useState(false)
+  const [salvandoMP, setSalvandoMP] = useState(false)
 
   const condominioId = userProfile?.condominioId || 'local'
   const podeEditar = PERFIS_GESTORES_PAGAMENTO.includes(userProfile?.role)
+  // As credenciais do Mercado Pago são mais restritas que os dados bancários:
+  // as regras do Firestore (config_privada) permitem apenas ao síndico.
+  const podeEditarCredenciais = PERFIS_CREDENCIAIS_MERCADO_PAGO.includes(userProfile?.role)
   const somenteLeitura = !podeEditar
 
   // Aplica no formulário tudo o que vive no documento de configuração (chave
@@ -48,6 +71,7 @@ export default function ConfigurarContas() {
     setConta(dados?.conta || '')
     setCarteira(dados?.carteira || '')
     setConvenio(dados?.convenio || '')
+    setMercadoPagoAtivo(dados?.mercadoPagoAtivo === true)
   }
 
   // Configuração do condomínio: documento de ID fixo ("principal") — cada
@@ -67,6 +91,92 @@ export default function ConfigurarContas() {
     })
     return () => unsub()
   }, [firebaseOK, condominioId, userProfile?.condominioId])
+
+  // Credenciais do Mercado Pago: o documento é privado e as regras do Firestore
+  // liberam a leitura apenas para o síndico. Para os demais perfis a leitura é
+  // negada de forma esperada (a seção fica só informativa).
+  useEffect(() => {
+    let encerrado = false
+    if (!firebaseOK || !userProfile?.condominioId || !podeEditarCredenciais) {
+      setCredenciaisMPCarregadas(false)
+      return undefined
+    }
+    carregarCredenciaisMercadoPago(userProfile.condominioId).then((dados) => {
+      if (encerrado) return
+      setAccessTokenMP(dados?.accessToken || '')
+      setPublicKeyMP(dados?.publicKey || '')
+      setCredenciaisMPCarregadas(Boolean(dados?.accessToken))
+    }).catch((erro) => {
+      if (encerrado) return
+      if (erro?.code === 'permission-denied') {
+        setMensagem('Sem permissão para ler o token. Publique o firestore.rules no console do Firebase (Firestore Database → Rules → Publish) e recarregue a página.')
+        setTipoMsg('error')
+      }
+    })
+    return () => { encerrado = true }
+  }, [firebaseOK, userProfile?.condominioId, podeEditarCredenciais])
+
+  const salvarMercadoPago = async () => {
+    if (!podeEditarCredenciais) return
+    setSalvandoMP(true)
+    try {
+      await salvarCredenciaisMercadoPago({
+        condominioId,
+        accessToken: accessTokenMP,
+        publicKey: publicKeyMP,
+        atualizadoPor: userProfile?.nome || userProfile?.email || ''
+      })
+      setMercadoPagoAtivo(true)
+      setCredenciaisMPCarregadas(true)
+      setMensagem('Credenciais do Mercado Pago salvas! Confirmando no servidor...')
+      try {
+        const conferidas = await carregarCredenciaisMercadoPago(condominioId, { doServidor: true, lancarErro: true })
+        if (conferidas?.accessToken) {
+          setAccessTokenMP(conferidas.accessToken)
+          setPublicKeyMP(conferidas.publicKey || '')
+          setMensagem('Credenciais do Mercado Pago salvas! Agora o boleto de cada cobrança pode ser registrado.')
+        } else {
+          setMensagem('Salvo, mas o token não voltou na leitura do servidor. Publique o firestore.rules (Rules -> Publish) e recarregue a página.')
+          setTipoMsg('error')
+        }
+      } catch (erroConf) {
+        if (erroConf?.code === 'permission-denied') {
+          setMensagem('Salvo, mas sem permissão de leitura: publique o firestore.rules (Rules -> Publish) e recarregue a página.')
+          setTipoMsg('error')
+        } else {
+          setMensagem('Salvo! Não foi possível confirmar a leitura agora — recarregue a página para conferir.')
+        }
+      }
+      setTipoMsg('success')
+    } catch (erro) {
+      console.error('Erro ao salvar as credenciais do Mercado Pago:', erro)
+      setMensagem(erro?.message || 'Não foi possível salvar as credenciais. Verifique a conexão e tente novamente.')
+      setTipoMsg('error')
+    } finally {
+      setSalvandoMP(false)
+    }
+  }
+
+  const removerMercadoPago = async () => {
+    if (!podeEditarCredenciais) return
+    if (!window.confirm('Remover as credenciais do Mercado Pago? Os boletos já gerados continuam válidos, mas o condomínio deixa de registrar novos.')) return
+    setSalvandoMP(true)
+    try {
+      await removerCredenciaisMercadoPago(condominioId)
+      setAccessTokenMP('')
+      setPublicKeyMP('')
+      setCredenciaisMPCarregadas(false)
+      setMercadoPagoAtivo(false)
+      setMensagem('Credenciais do Mercado Pago removidas.')
+      setTipoMsg('success')
+    } catch (erro) {
+      console.error('Erro ao remover as credenciais do Mercado Pago:', erro)
+      setMensagem('Não foi possível remover as credenciais. Verifique a conexão e tente novamente.')
+      setTipoMsg('error')
+    } finally {
+      setSalvandoMP(false)
+    }
+  }
 
   // Gravação única das duas seções (chave PIX e dados bancários) no mesmo
   // documento: o { merge: true } preserva os campos que não vieram no formulário.
@@ -286,9 +396,149 @@ export default function ConfigurarContas() {
                 </button>
               </div>
               <span className='form-hint'>
-                Boleto de demonstração, calculado a partir da própria cobrança — não há registro em banco. O
-                morador confere a linha digitável (47 dígitos) e paga por PIX, enviando o comprovante.
+                {mercadoPagoAtivo
+                  ? 'Estes dados são usados apenas no boleto de demonstração (sem registro em banco). Com o Mercado Pago ativo, use "Registrar no Mercado Pago" no boleto para obter o código de barras oficial.'
+                  : 'Boleto de demonstração, calculado a partir da própria cobrança — não há registro em banco. O morador confere a linha digitável (47 dígitos) e paga por PIX, enviando o comprovante. Para emitir boleto registrado de verdade, cadastre as credenciais do Mercado Pago na seção abaixo.'}
               </span>
+            </form>
+          )}
+        </div>
+        )}
+      </div>
+
+      {/* Boleto REGISTRADO no Mercado Pago: com o Access Token cadastrado aqui,
+          o código de barras (44 dígitos) e a linha digitável (47) passam a vir
+          do próprio Mercado Pago, e não mais do cálculo local. O token é um
+          SEGREDO: fica em config_privada/{condomínio} e só o síndico lê. */}
+      <div className='card'>
+        <div className='card-header'>
+          <h3>Boleto registrado (Mercado Pago)</h3>
+          <div className='filtros-header'>
+            {mercadoPagoAtivo
+              ? <span className='badge badge-green'>Ativo</span>
+              : <span className='badge badge-gray'>Não configurado</span>}
+            <button
+              type='button'
+              className='btn btn-ghost btn-small'
+              onClick={() => setSecaoMercadoPagoAberta((aberto) => !aberto)}
+              aria-expanded={secaoMercadoPagoAberta}
+            >
+              {secaoMercadoPagoAberta ? '▾ Recolher' : '▸ Expandir'}
+            </button>
+          </div>
+        </div>
+        {secaoMercadoPagoAberta && (
+        <div className='card-body'>
+          {!podeEditarCredenciais ? (
+            <p className='sub'>
+              {mercadoPagoAtivo
+                ? 'O condomínio emite boleto registrado pelo Mercado Pago. Somente o síndico altera as credenciais.'
+                : 'Somente o síndico cadastra as credenciais do Mercado Pago (Access Token).'}
+            </p>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); salvarMercadoPago() }}>
+              <p className='sub'>
+                Com o <strong>Access Token</strong> cadastrado, o síndico registra o boleto de cada
+                cobrança no Mercado Pago e o morador recebe o código de barras oficial (44 dígitos), a linha
+                digitável (47) e o link do boleto para imprimir ou pagar.
+                {modoCredencialMercadoPago(accessTokenMP) === 'teste' ? (
+                  <> <span className='badge badge-blue'>Modo teste</span> Token TEST-… da conta Vendedor de teste: o boleto é gerado só para validar o fluxo — <strong>não tente pagar no banco</strong>, use os dados do comprador de teste.</>
+                ) : (
+                  <> As credenciais de produção (<strong>APP_USR-…</strong>) movimentam dinheiro de verdade — se o token já apareceu em algum lugar público, gere um novo no painel do Mercado Pago antes de cadastrar aqui.</>
+                )}
+              </p>
+              <p className='sub'>
+                Mercado Pago › Developers › Suas integrações › sua aplicação › <strong>Credenciais de teste</strong> (token <strong>TEST-…</strong> da conta Vendedor, ex. User ID 3723216120, país Brasil) para homologar, ou <strong>Credenciais de produção</strong> (APP_USR-…) para cobrar de verdade.
+              </p>
+              <div className='form-grid'>
+                <div className='form-group'>
+                  <label htmlFor='mp-token'>{ROTULO_CREDENCIAL} *</label>
+                  <input
+                    type={mostrarTokenMP ? 'text' : 'password'}
+                    id='mp-token'
+                    value={accessTokenMP}
+                    onChange={(e) => setAccessTokenMP(e.target.value)}
+                    placeholder={credenciaisMPCarregadas ? 'Token salvo — preencha para trocar' : 'APP_USR-... (produção) ou TEST-... (teste)'}
+                    className='input'
+                    autoComplete='off'
+                    spellCheck='false'
+                  />
+                  <span className='form-hint'>
+                    {modoCredencialMercadoPago(accessTokenMP) === 'teste'
+                      ? 'Token de TESTE detectado (TEST-…). O boleto gerado serve para homologar o fluxo — não é pagável no banco.'
+                      : 'Mercado Pago › Developers › Credenciais de produção › Access Token (APP_USR-…). Ele fica guardado no servidor e nunca é enviado ao aparelho do morador.'}
+                  </span>
+                </div>
+                <div className='form-group'>
+                  <label htmlFor='mp-public'>Public Key (opcional)</label>
+                  <input
+                    type='text'
+                    id='mp-public'
+                    value={publicKeyMP}
+                    onChange={(e) => setPublicKeyMP(e.target.value)}
+                    placeholder='APP_USR-...'
+                    className='input'
+                    autoComplete='off'
+                    spellCheck='false'
+                  />
+                  <span className='form-hint'>Não é usada para gerar o boleto hoje; guardada para integrações futuras.</span>
+                </div>
+              </div>
+              <div className='form-actions'>
+                <button type='submit' className='btn btn-brass' disabled={salvandoMP}>
+                  {salvandoMP ? 'Salvando...' : 'Salvar credenciais'}
+                </button>
+                <button type='button' className='btn btn-ghost' onClick={() => setMostrarTokenMP((v) => !v)}>
+                  {mostrarTokenMP ? 'Ocultar token' : 'Mostrar token'}
+                </button>
+                {credenciaisMPCarregadas && (
+                  <button type='button' className='btn btn-ghost btn-danger' onClick={removerMercadoPago} disabled={salvandoMP}>
+                    Remover credenciais
+                  </button>
+                )}
+              </div>
+              {credenciaisMPCarregadas && (
+                <span className='form-hint'>
+                  Credenciais salvas. Abra um boleto (Emitir Boletos ou Meus Pagamentos) e use
+                  {' '}<strong>Registrar no Mercado Pago</strong> para gerar o código de barras oficial.
+                </span>
+              )}
+              {credenciaisMPCarregadas && (
+                <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+                  <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>
+                    Webhook para baixa automática (Mercado Pago)
+                  </label>
+                  <p className='sub' style={{ marginBottom: '0.5rem' }}>
+                    Os novos boletos emitidos já registram esta URL automaticamente para você. Se quiser que pagamentos antigos ou pagamentos via Pix da sua conta Mercado Pago também recebam baixa imediata sem você clicar em nada, cadastre esta URL no painel do Mercado Pago:
+                  </p>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      type='text'
+                      readOnly
+                      value={construirUrlWebhookMercadoPago('portaria-condominio-8fbc9', userProfile?.condominioId)}
+                      className='input'
+                      style={{ flex: 1, minWidth: '280px', fontSize: '0.85rem', fontFamily: 'monospace' }}
+                      onClick={(e) => e.target.select()}
+                    />
+                    <button
+                      type='button'
+                      className='btn btn-ghost btn-small'
+                      onClick={() => {
+                        const url = construirUrlWebhookMercadoPago('portaria-condominio-8fbc9', userProfile?.condominioId)
+                        navigator.clipboard?.writeText(url)
+                        setMensagem('URL do Webhook copiada!')
+                        setTipoMsg('success')
+                      }}
+                    >
+                      Copiar URL
+                    </button>
+                  </div>
+                  <span className='form-hint' style={{ marginTop: '0.35rem', display: 'block' }}>
+                    Mercado Pago › Developers › Suas integrações › Notificações Webhooks › URL de produção (Marcar eventos: "Pagamentos").
+                  </span>
+                </div>
+              )}
+
             </form>
           )}
         </div>
